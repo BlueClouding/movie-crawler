@@ -17,35 +17,19 @@ class TestVideoParser(unittest.TestCase):
         
         # 设置测试数据文件路径
         self.test_file = os.path.join(
-            'movie_details', 'jp', '3P・4P', '3P・4P_page_171.json'
+            'tests', 'data', 'html_cache', 'mxgs-1329-uncensored-leaked.html'
         )
     
     def test_parse_video_detail(self):
         """Test parsing video detail page."""
-        # 读取测试数据
+        # 读取测试HTML文件
         with open(self.test_file, 'r', encoding='utf-8') as f:
-            movies = json.load(f)
+            html_content = f.read()
         
-        # 选择第一个视频进行测试
-        test_movie = next(iter(movies.values()))
-        self.logger.info(f"Testing movie: {test_movie['title']}")
-        
-        # 创建测试缓存目录
-        cache_dir = os.path.join('tests', 'data', 'html_cache')
-        os.makedirs(cache_dir, exist_ok=True)
-        
-        # 获取视频详情页
-        response = self.session.get(test_movie['url'])
-        self.assertEqual(response.status_code, 200, "Failed to fetch video detail page")
-        
-        # 保存 HTML 到文件
-        cache_file = os.path.join(cache_dir, f"{test_movie['id']}.html")
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            f.write(response.text)
-        self.logger.info(f"Saved HTML to {cache_file}")
+        self.logger.info(f"Testing HTML file: {self.test_file}")
         
         # 解析页面
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(html_content, 'html.parser')
         
         # 打印页面结构
         self.logger.info("\nPage structure:")
@@ -79,7 +63,8 @@ class TestVideoParser(unittest.TestCase):
         os.makedirs(output_dir, exist_ok=True)
         
         # 保存解析结果
-        output_file = os.path.join(output_dir, f"{test_movie['id']}.json")
+        movie_id = video_info.get('id', 'unknown')
+        output_file = os.path.join(output_dir, f"video_{movie_id}.json")
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(video_info, f, indent=2, ensure_ascii=False)
         
@@ -96,6 +81,7 @@ class TestVideoParser(unittest.TestCase):
             dict: Video information
         """
         info = {
+            'id': None,
             'title': None,
             'cover_image': None,
             'preview_video': None,
@@ -109,6 +95,22 @@ class TestVideoParser(unittest.TestCase):
         }
         
         try:
+            # 提取视频ID
+            video_container = soup.find('div', id='page-video')
+            if video_container and 'v-scope' in video_container.attrs:
+                v_scope = video_container['v-scope']
+                if 'Movie({id:' in v_scope:
+                    # 使用字符串处理提取ID
+                    start_idx = v_scope.find('id:') + 3
+                    end_idx = v_scope.find(',', start_idx)
+                    if end_idx == -1:
+                        end_idx = v_scope.find('}', start_idx)
+                    if end_idx != -1:
+                        try:
+                            info['id'] = int(v_scope[start_idx:end_idx].strip())
+                        except ValueError:
+                            self.logger.error(f"Failed to parse video ID from {v_scope}")
+            
             # 提取标题
             title_elem = soup.select_one('h1')
             if title_elem:

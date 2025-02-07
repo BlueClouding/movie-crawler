@@ -44,40 +44,135 @@ class DetailCrawler:
         # 初始化重试记录
         self._retry_counts = {}
     
-    def _extract_m3u8_info(self, image_url):
+    def _get_video_urls(self, video_id):
+        """Get video URLs from ajax API.
+        
+        Args:
+            video_id (str): Video ID
+            
+        Returns:
+            tuple: (watch_url, download_url) or (None, None) if failed
+        """
+        try:
+            ajax_url = f'https://123av.com/ja/ajax/v/{video_id}/videos'
+            self._logger.info(f"Requesting ajax URL: {ajax_url}")
+            
+            time.sleep(random.uniform(1, 3))  # Rate limiting
+            
+            response = self._session.get(ajax_url, timeout=10)
+            if response.status_code != 200:
+                self._logger.error(f"Failed to fetch video URLs: {response.status_code}")
+                return None, None
+            
+            data = response.json()
+            if not data.get('result') or not data['result'].get('watch'):
+                self._logger.error("Invalid ajax response format")
+                return None, None
+            
+            watch_urls = data['result']['watch']
+            download_urls = data['result'].get('download', [])
+            
+            return (watch_urls[0]['url'] if watch_urls else None,
+                    download_urls[0]['url'] if download_urls else None)
+                    
+        except Exception as e:
+            self._logger.error(f"Error getting video URLs: {str(e)}")
+            return None, None
+    
+    def _extract_m3u8_info(self, video_id, cover_url):
         """Extract M3U8 and VTT information from javplayer.
         
         Args:
-            image_url (str): URL of the movie poster
+            video_id (str): Video ID
+            cover_url (str): URL of the movie poster
             
         Returns:
             tuple: (m3u8_url, vtt_url) or (None, None) if extraction fails
         """
         try:
-            encoded_poster = urllib.parse.quote(image_url)
-            player_url = f"https://javplayer.me/e/8WZOMOV8?poster={encoded_poster}"
+            # 1. 获取视频URL
+            watch_url, _ = self._get_video_urls(video_id)
+            if not watch_url:
+                return None, None
+                
+            # 2. 构造播放器URL
+            encoded_cover = urllib.parse.quote(cover_url)
+            player_url = f"{watch_url}?poster={encoded_cover}"
             
             self._logger.info(f"Requesting player URL: {player_url}")
-            
             time.sleep(random.uniform(1, 3))  # Rate limiting
             
+            # 3. 获取播放器页面
             response = self._session.get(player_url, timeout=10)
             if response.status_code != 200:
                 self._logger.error(f"Failed to fetch player page: {response.status_code}")
                 return None, None
             
+            # 4. 解析m3u8 URL
             soup = BeautifulSoup(response.text, 'html.parser')
+            player_div = soup.find('div', id='player')
+            if not player_div:
+                self._logger.error("Player div not found")
+                return None, None
             
-            # Extract m3u8 URL
-            video_elem = soup.select_one('video source[type="application/x-mpegURL"]')
-            m3u8_url = video_elem['src'] if video_elem else None
+            v_scope = player_div.get('v-scope', '')
+            if not v_scope or 'stream' not in v_scope:
+                self._logger.error("Stream URL not found in v-scope")
+                return None, None
             
-            # Extract VTT URL
-            track_elem = soup.select_one('track[kind="subtitles"]')
-            vtt_url = track_elem['src'] if track_elem else None
-            
-            return m3u8_url, vtt_url
-            
+            # 解析v-scope属性中的JSON
+            try:
+                # 找到第二个参数的JSON开始位置
+                video_start = v_scope.find('Video(')
+                if video_start == -1:
+                    self._logger.error("Video() function not found in v-scope")
+                    return None, None
+                
+                # 找到第二个参数的开始位置
+                first_comma = v_scope.find(',', video_start)
+                if first_comma == -1:
+                    self._logger.error("Comma not found after first parameter")
+                    return None, None
+                
+                json_start = v_scope.find('{', first_comma)
+                if json_start == -1:
+                    self._logger.error("Opening brace not found for second parameter")
+                    return None, None
+                
+                # 找到JSON的结束位置
+                brace_count = 1
+                json_end = json_start + 1
+                while brace_count > 0 and json_end < len(v_scope):
+                    if v_scope[json_end] == '{':
+                        brace_count += 1
+                    elif v_scope[json_end] == '}':
+                        brace_count -= 1
+                    json_end += 1
+                
+                if brace_count > 0:
+                    self._logger.error("Closing brace not found for JSON")
+                    return None, None
+                
+                # 提取JSON字符串
+                json_str = v_scope[json_start:json_end]
+                json_str = json_str.replace('&quot;', '"')
+                
+                # 解析JSON
+                stream_data = json.loads(json_str)
+                
+                m3u8_url = stream_data.get('stream')
+                vtt_url = stream_data.get('vtt')
+                
+                if not m3u8_url or not vtt_url:
+                    self._logger.error("Stream or VTT URL not found in JSON data")
+                    return None, None
+                
+                return m3u8_url, vtt_url
+                
+            except json.JSONDecodeError as e:
+                self._logger.error(f"Failed to parse JSON from v-scope: {e}")
+                return None, None
+                
         except Exception as e:
             self._logger.error(f"Error extracting video info: {str(e)}")
             return None, None
@@ -187,7 +282,8 @@ class DetailCrawler:
                 
                 # 获取 M3U8 和 VTT URL
                 if video_info['cover_image']:
-                    m3u8_url, vtt_url = self._extract_m3u8_info(video_info['cover_image'])
+                    movie_id = movie['url'].split('/')[-1]
+                    m3u8_url, vtt_url = self._extract_m3u8_info(movie_id, video_info['cover_image'])
                     video_info['m3u8_url'] = m3u8_url
                     video_info['vtt_url'] = vtt_url
                 
@@ -242,10 +338,9 @@ class DetailCrawler:
                 self._logger.error(f"Failed to get total pages for genre: {genre_name}")
                 return
                 
-            self._logger.info(f"Found {total_pages} pages for genre: {genre_name}")
+                self._logger.info(f"Found {total_pages} pages for genre: {genre_name}")
             
-            # Get last processed page from progress
-            if self._progress_manager:
+                # Get last processed page from progress
                 start_page = self._progress_manager.get_genre_progress(genre_name)
                 self._logger.info(f"Resuming from page {start_page} for genre: {genre_name}")
             else:
@@ -273,13 +368,11 @@ class DetailCrawler:
                         self._logger.info(f"Saved {len(movies)} movies from page {page} to {output_file} (Total: {movies_count})")
                         
                         # Update progress
-                        if self._progress_manager:
-                            self._progress_manager.update_detail_progress(genre_name, page)
+                        self._progress_manager.update_detail_progress(genre_name, page)
                     else:
                         self._logger.warning(f"No movies found on page {page} for genre: {genre_name}")
                     
                     # Update genre progress
-                    if self._progress_manager:
                         self._progress_manager.update_genre_progress(genre_name, page)
                         
                 except Exception as e:
@@ -290,7 +383,6 @@ class DetailCrawler:
                     continue
             
             # Mark genre as completed
-            if self._progress_manager:
                 self._progress_manager.update_genre_progress(genre_name, total_pages, completed=True)
             
             self._logger.info(f"Completed processing genre: {genre_name} (Total movies: {movies_count})")
@@ -552,8 +644,13 @@ class DetailCrawler:
         
         # 获取当前进度
         current_file = 0
-        if self._progress_manager:
-            current_file = self._progress_manager.get_detail_progress(genre_dir)
+        # 遍历所有文件，找到第一个未处理的文件
+        for i, json_file in enumerate(json_files):
+            page_num = int(json_file.split('_page_')[1].split('.')[0])
+            processed, _ = self._progress_manager.get_detail_progress(genre_dir, page_num)
+            if not processed:
+                current_file = i
+                break
         
         # 从上次进度继续
         for i, json_file in enumerate(json_files[current_file:], start=current_file):
@@ -572,12 +669,14 @@ class DetailCrawler:
                     movies = json.load(f)
                 
                 # 处理每个电影
+                processed_movie_ids = []
                 for movie_id, movie_data in movies.items():
                     try:
                         # 检查是否已经处理过
                         movie_file = os.path.join(target_path, f"{movie_id}.json")
                         if os.path.exists(movie_file) and not self._clear_existing:
                             self._logger.info(f"Movie file exists, skipping: {movie_file}")
+                            processed_movie_ids.append(movie_id)
                             continue
                         
                         # 检查重试次数
@@ -599,6 +698,7 @@ class DetailCrawler:
                         try:
                             response = self._session.get(movie_data['url'], timeout=30)
                             if response.status_code == 200:
+                                success = True
                                 soup = BeautifulSoup(response.text, 'html.parser')
                                 video_info = self._parse_video_info(soup)
                                 
@@ -622,27 +722,26 @@ class DetailCrawler:
                                 with open(movie_file, 'w', encoding='utf-8') as f:
                                     json.dump(video_info, f, ensure_ascii=False, indent=2)
                                 self._logger.info(f"Saved video details to: {movie_file}")
-                                success = True
+                                processed_movie_ids.append(movie_id)
                             else:
                                 self._logger.error(f"Failed to get movie details for {movie_id}: HTTP {response.status_code}")
+                                if retry_key not in self._retry_counts:
+                                    self._retry_counts[retry_key] = 0
+                                self._retry_counts[retry_key] += 1
                         except Exception as e:
-                            self._logger.error(f"Error getting movie details for {movie_id}: {str(e)}")
-                        
-                        # 更新重试计数
-                        if not success:
-                            self._retry_counts[retry_key] = self._retry_counts.get(retry_key, 0) + 1
-                            self._logger.warning(f"Movie {movie_id} failed {self._retry_counts[retry_key]} times")
-                        
-                        # 添加随机延迟
-                        time.sleep(random.uniform(1, 3))
-                        
+                            self._logger.error(f"Error processing movie {movie_id}: {str(e)}")
+                            if retry_key not in self._retry_counts:
+                                self._retry_counts[retry_key] = 0
+                            self._retry_counts[retry_key] += 1
                     except Exception as e:
                         self._logger.error(f"Error processing movie {movie_id}: {str(e)}")
-                        continue  # 继续处理下一个电影
                 
-                # 更新进度
+                # 添加随机延迟
+                time.sleep(random.uniform(1, 3))
+                
+                page_num = int(json_file.split('_page_')[1].split('.')[0])
                 if self._progress_manager:
-                    self._progress_manager.update_detail_progress(genre_dir, i + 1)
+                    self._progress_manager.update_detail_progress(genre_dir, page_num, processed_movie_ids)
                     
             except Exception as e:
                 self._logger.error(f"Error processing file {json_file}: {str(e)}")

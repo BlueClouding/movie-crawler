@@ -34,7 +34,8 @@ class ProgressManager:
                 'completed': False
             },
             'detail': {
-                'genres': {},  # Progress for each genre's movies
+                'genres': {},  # Progress for each genre's pages
+                'pages': {},   # Progress for each page's movies
                 'last_update': None,
                 'completed': False
             },
@@ -114,12 +115,13 @@ class ProgressManager:
             return genre_progress.get('last_page', 1)
         return 1
     
-    def update_detail_progress(self, genre_name, movie_index, completed=False):
+    def update_detail_progress(self, genre_name, page_num, movie_ids=None, completed=False):
         """Update detail crawler progress.
         
         Args:
             genre_name (str): Name of the genre
-            movie_index (int): Current movie index
+            page_num (int): Current page number
+            movie_ids (list): List of movie IDs processed in this page
             completed (bool): Whether all details are completed
         """
         with self.lock:
@@ -129,10 +131,31 @@ class ProgressManager:
                 if 'genres' not in progress['detail']:
                     progress['detail']['genres'] = {}
                 
-                progress['detail']['genres'][genre_name] = {
-                    'current_index': movie_index,
-                    'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
+                if genre_name not in progress['detail']['genres']:
+                    progress['detail']['genres'][genre_name] = {
+                        'pages': {},
+                        'last_update': None
+                    }
+                
+                # 更新页面进度
+                page_key = f"{genre_name}_page_{page_num}"
+                if page_num is not None:
+                    if 'pages' not in progress['detail']:
+                        progress['detail']['pages'] = {}
+                    
+                    progress['detail']['pages'][page_key] = {
+                        'processed': True,
+                        'movie_ids': movie_ids or [],
+                        'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    
+                    progress['detail']['genres'][genre_name]['pages'][str(page_num)] = {
+                        'processed': True,
+                        'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                
+                progress['detail']['genres'][genre_name]['last_update'] = \
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             if completed:
                 progress['detail']['completed'] = True
@@ -143,20 +166,28 @@ class ProgressManager:
             progress['detail']['last_update'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self._save_progress(progress)
     
-    def get_detail_progress(self, genre_name):
+    def get_detail_progress(self, genre_name, page_num):
         """Get progress for detail crawler.
         
         Args:
             genre_name (str): Name of the genre
+            page_num (int): Page number to check
             
         Returns:
-            int: Last processed movie index
+            bool: Whether the page has been processed
+            list: List of processed movie IDs for this page
         """
         progress = self._load_progress()
-        if 'detail' in progress and 'genres' in progress['detail']:
-            genre_progress = progress['detail']['genres'].get(genre_name, {})
-            return genre_progress.get('current_index', 0)
-        return 0
+        if 'detail' not in progress or 'pages' not in progress['detail']:
+            return False, []
+        
+        page_key = f"{genre_name}_page_{page_num}"
+        page_progress = progress['detail']['pages'].get(page_key, {})
+        
+        return (
+            page_progress.get('processed', False),
+            page_progress.get('movie_ids', [])
+        )
     
     def update_m3u8_progress(self, genre_name, movie_index, completed=False):
         """Update M3U8 crawler progress.
