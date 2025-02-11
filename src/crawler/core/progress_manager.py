@@ -256,3 +256,13 @@ class ProgressManager:
             }
             # 保存新的进度数据
             self._save_progress(self.progress_data)
+
+    def clear_detail_progress(self):
+        """Clear detail crawler progress data."""
+        with self.lock:
+            progress = self._load_progress()
+            progress['detail']['genres'] = {}
+            progress['detail']['pages'] = {}
+            progress['detail']['last_update'] = None
+            progress['detail']['completed'] = False
+            self._save_progress(progress)

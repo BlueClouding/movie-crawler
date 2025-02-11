@@ -7,6 +7,7 @@ import time
 import random
 import ssl
 import urllib.parse
+import re
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from ..utils.http import create_session
@@ -40,10 +41,68 @@ class DetailCrawler:
         
         # Create session with retry mechanism and SSL handling
         self._session = create_session(use_proxy=True)
-        
+
         # 初始化重试记录
         self._retry_counts = {}
-    
+
+    def start(self):
+        """Start the detail crawling process."""
+        self._logger.info("Starting detail crawler...")
+        
+        language_dir = os.path.join('genre_movie', self._language)
+        if not os.path.exists(language_dir):
+            self._logger.warning(f"Language directory not found: {language_dir}")
+            return
+
+        genre_dirs = [d for d in os.listdir(language_dir)
+                      if os.path.isdir(os.path.join(language_dir, d))]
+        if not genre_dirs:
+            self._logger.info("No genre directories found to process.")
+            return
+
+        self._logger.info(f"Found {len(genre_dirs)} genre directories: {genre_dirs}")
+
+        with ThreadPoolExecutor(max_workers=self._threads) as executor:
+            for genre_name in genre_dirs:
+                executor.submit(self.process_genre_movies, genre_name)
+
+        self._logger.info("Detail crawling process started for all genres.")
+
+
+    def process_genre_movies(self, genre_name):
+        """Process movies for a specific genre."""
+        genre_dir = os.path.join('genre_movie', self._language, genre_name)
+        if not os.path.isdir(genre_dir):
+            self._logger.error(f"Genre directory not found: {genre_dir}")
+            return
+
+        movie_files = [f for f in os.listdir(genre_dir)
+                       if f.endswith('.json') and f.startswith(f'{genre_name}_page_')]
+        if not movie_files:
+            self._logger.info(f"No movie files found in genre directory: {genre_dir}")
+            return
+
+        self._logger.info(f"Found {len(movie_files)} movie files for genre: {genre_name}")
+
+        for movie_file in movie_files:
+            file_path = os.path.join(genre_dir, movie_file)
+            movies = safe_read_json(file_path)
+            if not movies:
+                self._logger.warning(f"No movies loaded from file: {file_path}")
+                continue
+
+            self._logger.info(f"Processing {len(movies)} movies from {movie_file} for genre: {genre_name}")
+            for movie in movies.values():
+                if not movie or not movie.get('url'):
+                    self._logger.warning(f"Invalid movie data in {movie_file}: {movie}")
+                    continue
+                detail = self._get_movie_detail(movie)
+                if detail:
+                    self._save_movie_data(detail, genre_name)
+                time.sleep(random.uniform(1, 3))  # Rate limiting
+            self._logger.info(f"Finished processing movies from {movie_file} for genre: {genre_name}")
+
+
     def _get_video_urls(self, video_id):
         """Get video URLs from ajax API.
         
@@ -155,7 +214,7 @@ class DetailCrawler:
                 
                 # 提取JSON字符串
                 json_str = v_scope[json_start:json_end]
-                json_str = json_str.replace('&quot;', '"')
+                json_str = json_str.replace('"', '"')
                 
                 # 解析JSON
                 stream_data = json.loads(json_str)
@@ -177,12 +236,13 @@ class DetailCrawler:
             self._logger.error(f"Error extracting video info: {str(e)}")
             return None, None
 
-    def _parse_video_info(self, soup):
+    def _parse_video_info(self, soup, id):
         """Parse video information from the detail page.
         
         Args:
             soup (BeautifulSoup): Parsed HTML
-            
+            movie (dict): Movie information
+
         Returns:
             dict: Video information
         """
@@ -198,7 +258,8 @@ class DetailCrawler:
             'series': None,
             'maker': None,
             'm3u8_url': None,
-            'vtt_url': None
+            'vtt_url': None,
+            'id': id  # Ensure 'id' is initialized
         }
         
         try:
@@ -255,7 +316,7 @@ class DetailCrawler:
                             
             # 提取 M3U8 和 VTT URL
             if info['cover_image']:
-                m3u8_url, vtt_url = self._extract_m3u8_info(info['cover_image'])
+                m3u8_url, vtt_url = self._extract_m3u8_info(info['id'], info['cover_image'])
                 info['m3u8_url'] = m3u8_url
                 info['vtt_url'] = vtt_url
             
@@ -264,42 +325,82 @@ class DetailCrawler:
             self._logger.error("Error details:", exc_info=True)
         
         return info
-
+        
     def _get_movie_detail(self, movie):
         """Get details for a single movie.
-        
+
         Args:
             movie (dict): Movie information
-            
+
         Returns:
             dict: Movie details
         """
         try:
+            self._logger.info(f"Fetching movie details from: {movie['url']}")
             response = self._session.get(movie['url'])
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                video_info = self._parse_video_info(soup)
-                
-                # 获取 M3U8 和 VTT URL
-                if video_info['cover_image']:
-                    movie_id = movie['url'].split('/')[-1]
-                    m3u8_url, vtt_url = self._extract_m3u8_info(movie_id, video_info['cover_image'])
-                    video_info['m3u8_url'] = m3u8_url
-                    video_info['vtt_url'] = vtt_url
-                
-                # 添加原始信息
-                movie_id = movie['url'].split('/')[-1]
-                video_info['id'] = movie_id
-                video_info['url'] = movie['url']
-                video_info['duration'] = movie.get('duration')
-                
-                return video_info
-                
+
+            if response.status_code != 200:
+                self._logger.error(f"Failed to fetch movie page: HTTP {response.status_code}")
+                return None
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Initialize video_info with basic data
+            video_info = {'url': movie['url']}
+
+            # 提取 movie ID - 优先从 v-scope 中提取
+            video_info['id'] = None  # 初始化 id 为 None
+            container_div = soup.select_one('#page-video')
+            if container_div:
+                v_scope_attr = container_div.get('v-scope')
+                if v_scope_attr:
+                    movie_id_match = re.search(r"Movie\(\{id: (\d+),", v_scope_attr)
+                    if movie_id_match:
+                        video_info['id'] = movie_id_match.group(1)
+                        self._logger.info(f"Extracted movie ID from v-scope: {video_info['id']}")
+                    else:
+                        self._logger.warning("Could not extract movie ID from v-scope regex.")
+                else:
+                    self._logger.warning("No v-scope attribute found.")
+            else:
+                self._logger.warning("No #page-video container found.")
+
+            # 如果 v-scope 中没有提取到 movie ID，则从 URL 中获取作为 fallback
+            if not video_info['id']:
+                video_info['id'] = movie['url'].split('/')[-1]
+                self._logger.info(f"Fallback to URL-based ID: {video_info['id']}")
+
+
+            # Parse video info from page (在提取 ID 之后)
+            parsed_info = self._parse_video_info(soup, video_info['id'])
+            self._logger.info(f"Parsed info: {parsed_info}")
+            if not parsed_info:
+                self._logger.error("Failed to parse video info from page")
+                return None
+
+            video_info.update(parsed_info)
+
+            # Get M3U8 and VTT URLs if cover image exists
+            if video_info.get('cover_image'):
+                m3u8_url, vtt_url = self._extract_m3u8_info(video_info['id'], video_info['cover_image'])
+                self._logger.info(f"M3U8 URL: {m3u8_url}, VTT URL: {vtt_url}")
+                if not m3u8_url or not vtt_url:
+                    self._logger.warning("Failed to extract M3U8/VTT URLs")
+                video_info['m3u8_url'] = m3u8_url
+                video_info['vtt_url'] = vtt_url
+
+            # Add duration if provided
+            if 'duration' in movie:
+                video_info['duration'] = movie['duration']
+
+
+            self._logger.info(f"Successfully fetched movie details: {video_info.get('id')}")
+            return video_info
+
         except Exception as e:
             self._logger.error(f"Error getting movie details for {movie['url']}: {str(e)}")
+            self._logger.error("Error details:", exc_info=True)
             return None
-
-        return None
     
     def _save_movie_data(self, movie_data, genre_name):
         """Save movie details to file.
@@ -345,7 +446,7 @@ class DetailCrawler:
                 self._logger.info(f"Resuming from page {start_page} for genre: {genre_name}")
             else:
                 start_page = 1
-            
+        
             # Process each page
             movies_count = 0
             for page in range(start_page, total_pages + 1):
@@ -373,7 +474,7 @@ class DetailCrawler:
                         self._logger.warning(f"No movies found on page {page} for genre: {genre_name}")
                     
                     # Update genre progress
-                        self._progress_manager.update_genre_progress(genre_name, page)
+                    self._progress_manager.update_genre_progress(genre_name, page)
                         
                 except Exception as e:
                     self._logger.error(f"Error processing page {page} for genre {genre_name}: {str(e)}")
@@ -383,7 +484,7 @@ class DetailCrawler:
                     continue
             
             # Mark genre as completed
-                self._progress_manager.update_genre_progress(genre_name, total_pages, completed=True)
+            self._progress_manager.update_genre_progress(genre_name, total_pages, completed=True)
             
             self._logger.info(f"Completed processing genre: {genre_name} (Total movies: {movies_count})")
             
@@ -429,7 +530,7 @@ class DetailCrawler:
             return
             
         movie_list = list(movies.values())
-        start_index = self.progress_manager.get_detail_progress(genre_name) if self.progress_manager else 0
+        start_index = self._progress_manager.get_detail_progress(genre_name) if self._progress_manager else 0
         
         self.logger.info(f"Processing {len(movie_list[start_index:])} movies for genre: {genre_name}")
         
@@ -438,311 +539,7 @@ class DetailCrawler:
             if details:
                 self._save_movie_data(details, genre_name)
                 
-            if self.progress_manager:
-                self.progress_manager.update_detail_progress(genre_name, i + 1)
+            if self._progress_manager:
+                self._progress_manager.update_detail_progress(genre_name, i + 1)
                 
             time.sleep(random.uniform(1, 3))  # Rate limiting
-            
-    def _get_total_pages(self, genre_url):
-        """Get total number of pages for a genre.
-        
-        Args:
-            genre_url (str): URL of the genre
-            
-        Returns:
-            int: Total number of pages, or None if failed
-        """
-        try:
-            if not genre_url.startswith('http'):
-                genre_url = f"{self._base_url}/{genre_url}"
-            
-            self._logger.debug(f"Fetching total pages from URL: {genre_url}")
-            response = self._session.get(genre_url)
-            
-            if response.status_code == 200:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # 尝试多个分页选择器
-                selectors = [
-                    '.pagination .page-item:last-child a',  # Bootstrap 风格
-                    '.pager .last a',                       # 通用分页
-                    '.pages .last',                         # 简单分页
-                    '.page-numbers:last-child'              # WordPress 风格
-                ]
-                
-                for selector in selectors:
-                    last_page = soup.select_one(selector)
-                    if last_page:
-                        # 尝试从 href 获取页数
-                        href = last_page.get('href', '')
-                        if 'page=' in href:
-                            try:
-                                return int(href.split('page=')[-1])
-                            except ValueError:
-                                continue
-                        
-                        # 尝试从文本获取页数
-                        text = last_page.text.strip()
-                        try:
-                            return int(''.join(filter(str.isdigit, text)))
-                        except ValueError:
-                            continue
-                
-                # 如果找不到分页组件，记录页面结构
-                self._logger.debug(f"Available classes: {[cls for tag in soup.find_all(class_=True) for cls in tag.get('class', [])][:20]}")
-                # 默认返回 1 页
-                return 1
-                
-        except Exception as e:
-            self._logger.error(f"Error getting total pages: {str(e)}")
-            if hasattr(e, 'response'):
-                self._logger.error(f"Response content: {e.response.content[:500]}")
-        return None
-        
-    def _fetch_genre_movies(self, genre_url, page):
-        """Fetch movies for a genre page.
-        
-        Args:
-            genre_url (str): URL of the genre
-            page (int): Page number to fetch
-            
-        Returns:
-            dict: Dictionary of movies with movie ID as key
-        """
-        try:
-            if not genre_url.startswith('http'):
-                genre_url = f"{self._base_url}/{genre_url}"
-            url = f"{genre_url}?page={page}"
-            self._logger.debug(f"Fetching URL: {url}")
-            
-            response = self._session.get(url, timeout=30)
-            if response.status_code == 200:
-                from bs4 import BeautifulSoup
-                from urllib.parse import urljoin
-                soup = BeautifulSoup(response.text, 'html.parser')
-                movies = {}
-                
-                # 获取所有电影项
-                items = soup.select('.box-item')
-                self._logger.debug(f"Found {len(items)} movie items")
-                
-                for item in items:
-                    # 获取缩略图链接
-                    thumb_link = item.select_one('.thumb a')
-                    if not thumb_link:
-                        continue
-                    
-                    url = thumb_link.get('href', '')
-                    if not url:
-                        continue
-                    
-                    # 获取标题
-                    title = thumb_link.get('title', '')
-                    if not title:
-                        img = thumb_link.find('img')
-                        if img:
-                            title = img.get('alt', '')
-                    
-                    # 获取详细信息
-                    detail = item.select_one('.detail a')
-                    if detail:
-                        detail_text = detail.get_text(strip=True)
-                        if detail_text:
-                            title = detail_text
-                    
-                    # 获取时长
-                    duration = item.select_one('.duration')
-                    duration_text = duration.get_text(strip=True) if duration else ''
-                    
-                    # 生成电影ID
-                    movie_id = url.split('/')[-1]
-                    
-                    if movie_id and title:
-                        # 确保 URL 包含语言路径
-                        if url.startswith('http'):
-                            final_url = url
-                        else:
-                            # 如果 URL 不以语言路径开头，添加语言路径
-                            if not url.startswith(f'/{self._language}/'):
-                                url = f'/{self._language}/{url.lstrip("/")}'
-                            final_url = f'http://123av.com{url}'
-                        
-                        movies[movie_id] = {
-                            'id': movie_id,
-                            'title': title,
-                            'url': final_url,
-                            'duration': duration_text
-                        }
-                
-                if movies:
-                    self._logger.debug(f"Successfully extracted {len(movies)} movies")
-                    return movies
-                else:
-                    self._logger.warning("No movies found in the page")
-                    return None
-                
-        except Exception as e:
-            self._logger.error(f"Error fetching movies for page {page}: {str(e)}")
-            if hasattr(e, 'response'):
-                self._logger.error(f"Response content: {e.response.content[:500]}")
-            import traceback
-            self._logger.error(f"Traceback: {traceback.format_exc()}")
-        return None
-    
-    def start(self):
-        """Start crawling details for all movies in genre_movie directory."""
-        self._logger.info("Starting detail crawler")
-        
-        # 遍历 genre_movie 目录
-        if not os.path.exists(self._source_dir):
-            self._logger.error(f"Source directory not found: {self._source_dir}")
-            return
-        
-        # 获取所有类型目录
-        genre_dirs = [d for d in os.listdir(self._source_dir) if os.path.isdir(os.path.join(self._source_dir, d))]
-        self._logger.info(f"Found {len(genre_dirs)} genre directories")
-        
-        # 按字母顺序排序
-        genre_dirs.sort()
-        
-        # 使用线程池处理每个类型
-        with ThreadPoolExecutor(max_workers=self._threads) as executor:
-            # 提交所有任务
-            future_to_genre = {executor.submit(self._process_genre_dir, genre_dir): genre_dir 
-                              for genre_dir in genre_dirs}
-            
-            # 等待任务完成并处理结果
-            for future in future_to_genre:
-                genre_dir = future_to_genre[future]
-                try:
-                    future.result()  # 等待任务完成
-                    self._logger.info(f"Completed genre directory: {genre_dir}")
-                except Exception as e:
-                    self._logger.error(f"Error processing genre directory {genre_dir}: {str(e)}")
-                    import traceback
-                    self._logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        self._logger.info("Detail crawler finished")
-    
-    def _process_genre_dir(self, genre_dir):
-        """Process all JSON files in a genre directory.
-        
-        Args:
-            genre_dir (str): Name of the genre directory
-        """
-        source_path = os.path.join(self._source_dir, genre_dir)
-        target_path = os.path.join(self._base_dir, genre_dir)
-        self._logger.info(f"Processing genre directory: {source_path}")
-        
-        # 创建目标目录
-        os.makedirs(target_path, exist_ok=True)
-        
-        # 获取所有 JSON 文件
-        json_files = sorted([f for f in os.listdir(source_path) if f.endswith('.json')],
-                           key=lambda x: int(x.split('_page_')[1].split('.')[0]))
-        
-        # 获取当前进度
-        current_file = 0
-        # 遍历所有文件，找到第一个未处理的文件
-        for i, json_file in enumerate(json_files):
-            page_num = int(json_file.split('_page_')[1].split('.')[0])
-            processed, _ = self._progress_manager.get_detail_progress(genre_dir, page_num)
-            if not processed:
-                current_file = i
-                break
-        
-        # 从上次进度继续
-        for i, json_file in enumerate(json_files[current_file:], start=current_file):
-            try:
-                source_file = os.path.join(source_path, json_file)
-                target_file = os.path.join(target_path, json_file)
-                self._logger.info(f"Processing file {i+1}/{len(json_files)}: {source_file}")
-                
-                # 如果目标文件已存在且不需要清除，则跳过
-                if os.path.exists(target_file) and not self._clear_existing:
-                    self._logger.info(f"Target file exists, skipping: {target_file}")
-                    continue
-                
-                # 读取源 JSON 文件
-                with open(source_file, 'r', encoding='utf-8') as f:
-                    movies = json.load(f)
-                
-                # 处理每个电影
-                processed_movie_ids = []
-                for movie_id, movie_data in movies.items():
-                    try:
-                        # 检查是否已经处理过
-                        movie_file = os.path.join(target_path, f"{movie_id}.json")
-                        if os.path.exists(movie_file) and not self._clear_existing:
-                            self._logger.info(f"Movie file exists, skipping: {movie_file}")
-                            processed_movie_ids.append(movie_id)
-                            continue
-                        
-                        # 检查重试次数
-                        retry_key = f"{genre_dir}/{movie_id}"
-                        if retry_key in self._retry_counts and self._retry_counts[retry_key] >= 3:
-                            self._logger.warning(f"Movie {movie_id} has failed 3 times, skipping")
-                            failed_file = os.path.join(self._failed_dir, genre_dir, f"{movie_id}.json")
-                            os.makedirs(os.path.dirname(failed_file), exist_ok=True)
-                            with open(failed_file, 'w', encoding='utf-8') as f:
-                                json.dump({
-                                    'id': movie_id,
-                                    'url': movie_data['url'],
-                                    'error': f"Failed after {self._retry_counts[retry_key]} retries"
-                                }, f, ensure_ascii=False, indent=2)
-                            continue
-                        
-                        # 获取详细信息
-                        success = False
-                        try:
-                            response = self._session.get(movie_data['url'], timeout=30)
-                            if response.status_code == 200:
-                                success = True
-                                soup = BeautifulSoup(response.text, 'html.parser')
-                                video_info = self._parse_video_info(soup)
-                                
-                                # 获取M3U8和VTT URL
-                                if video_info['cover_image']:
-                                    try:
-                                        m3u8_url, vtt_url = self._extract_m3u8_info(video_info['cover_image'])
-                                        video_info['m3u8_url'] = m3u8_url
-                                        video_info['vtt_url'] = vtt_url
-                                    except Exception as e:
-                                        self._logger.error(f"Error getting M3U8 info for movie {movie_id}: {str(e)}")
-                                        video_info['m3u8_url'] = None
-                                        video_info['vtt_url'] = None
-                                
-                                # 添加原始信息
-                                video_info['id'] = movie_id
-                                video_info['url'] = movie_data['url']
-                                video_info['duration'] = movie_data.get('duration')
-                                
-                                # 保存到单独文件
-                                with open(movie_file, 'w', encoding='utf-8') as f:
-                                    json.dump(video_info, f, ensure_ascii=False, indent=2)
-                                self._logger.info(f"Saved video details to: {movie_file}")
-                                processed_movie_ids.append(movie_id)
-                            else:
-                                self._logger.error(f"Failed to get movie details for {movie_id}: HTTP {response.status_code}")
-                                if retry_key not in self._retry_counts:
-                                    self._retry_counts[retry_key] = 0
-                                self._retry_counts[retry_key] += 1
-                        except Exception as e:
-                            self._logger.error(f"Error processing movie {movie_id}: {str(e)}")
-                            if retry_key not in self._retry_counts:
-                                self._retry_counts[retry_key] = 0
-                            self._retry_counts[retry_key] += 1
-                    except Exception as e:
-                        self._logger.error(f"Error processing movie {movie_id}: {str(e)}")
-                
-                # 添加随机延迟
-                time.sleep(random.uniform(1, 3))
-                
-                page_num = int(json_file.split('_page_')[1].split('.')[0])
-                if self._progress_manager:
-                    self._progress_manager.update_detail_progress(genre_dir, page_num, processed_movie_ids)
-                    
-            except Exception as e:
-                self._logger.error(f"Error processing file {json_file}: {str(e)}")
-                continue  # 继续处理下一个文件

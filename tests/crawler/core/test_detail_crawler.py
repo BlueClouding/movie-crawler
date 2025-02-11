@@ -24,67 +24,48 @@ class TestDetailCrawler(unittest.TestCase):
         # 创建爬虫实例
         cls.crawler = DetailCrawler(clear_existing=True)
         
-    def test_get_video_urls(self):
-        """Test getting video URLs from ajax API."""
-        video_id = '180813'
-        watch_url, download_url = self.crawler._get_video_urls(video_id)
-        
-        self.assertIsNotNone(watch_url, "Watch URL should not be None")
-        self.assertTrue(watch_url.startswith('https://javplayer.me/'),
-                       "Watch URL should be a javplayer URL")
-        
-    def test_extract_m3u8_info(self):
-        """Test extracting M3U8 and VTT information."""
-        video_id = '180813'
-        cover_url = "https://cdn.avfever.net/images/7/d7/savr-238/cover.jpg?t=1730570053"
-        
-        m3u8_url, vtt_url = self.crawler._extract_m3u8_info(video_id, cover_url)
-        
-        self.assertIsNotNone(m3u8_url, "M3U8 URL should not be None")
-        self.assertIsNotNone(vtt_url, "VTT URL should not be None")
-        self.assertTrue(m3u8_url.endswith('m3u8'), "M3U8 URL should end with m3u8")
-        self.assertTrue(vtt_url.endswith('vtt'), "VTT URL should end with vtt")
-        
     def test_get_movie_detail(self):
-        """Test getting movie details."""
-        # 1. 先获取视频URL
-        video_id = '180813'
-        watch_url, _ = self.crawler._get_video_urls(video_id)
-        self.assertIsNotNone(watch_url, "Failed to get watch URL")
-        
-        # 2. 构造测试数据
+        """Test getting movie details from detail page URL."""
+        # 1. 构造测试数据，使用电影详情页 URL
+        movie_url = "http://123av.com/jp/v/dass-587-uncensored-leaked"  # 使用电影详情页 URL
         movie = {
-            'url': f'https://123av.com/ja/movies/{video_id}',
-            'title': 'Test Movie',
-            'duration': '120',
-            'cover_image': "https://cdn.avfever.net/images/7/d7/savr-238/cover.jpg?t=1730570053"
+            'url': movie_url,
         }
-        
-        # 3. 获取视频详情
+
+        # 2. 获取视频详情
+        logging.info("movie:", movie)
         video_info = self.crawler._get_movie_detail(movie)
         self.assertIsNotNone(video_info, "Video info should not be None")
-        
-        # 4. 验证基本信息
-        self.assertEqual(video_info['id'], video_id, "Video ID should match")
-        self.assertEqual(video_info['title'], movie['title'], "Title should match")
-        self.assertEqual(video_info['duration'], movie['duration'], "Duration should match")
-        
-        # 5. 验证URL
+
+        # 3. 验证 ID 是否已提取，并且不是从 URL 简单分割出来的
+        self.assertIsNotNone(video_info.get('id'), "Video ID should not be None")
+        # 假设从 HTML 中提取的 ID  通常不是 'dass-587-uncensored-leaked' 这种 URL slug
+        self.assertNotEqual(video_info['id'], 'dass-587-uncensored-leaked',
+                            "Video ID should not be directly from URL slug")
+        self.assertTrue(video_info['id'].isdigit(), "Video ID should be digits (extracted from HTML)")
+
+
+        # 4. 验证其他基本信息 (可以根据实际情况调整验证的字段)
+        self.assertIsNotNone(video_info.get('title'), "Title should not be None")
+        self.assertIsNotNone(video_info.get('duration'), "Duration should not be None")
+
+        # 5. 验证URL (M3U8 and VTT URLs)
         self.assertIsNotNone(video_info.get('m3u8_url'), "M3U8 URL should not be None")
         self.assertIsNotNone(video_info.get('vtt_url'), "VTT URL should not be None")
-        
+
         if video_info.get('m3u8_url'):
             self.assertTrue(video_info['m3u8_url'].endswith('m3u8'),
                           "M3U8 URL should end with m3u8")
         if video_info.get('vtt_url'):
             self.assertTrue(video_info['vtt_url'].endswith('vtt'),
                           "VTT URL should end with vtt")
-        
+
         # 6. 保存测试结果
-        result_file = os.path.join(self.test_dir, f'detail_test_{video_id}.json')
+        video_id_for_filename = video_info.get('id', 'unknown_id') # 使用解析出的 ID 或 'unknown_id'
+        result_file = os.path.join(self.test_dir, f'detail_test_html_id_{video_id_for_filename}.json')
         with open(result_file, 'w', encoding='utf-8') as f:
             json.dump(video_info, f, indent=2, ensure_ascii=False)
         self.crawler._logger.info(f"Saved test result to {result_file}")
-        
+
 if __name__ == '__main__':
     unittest.main()

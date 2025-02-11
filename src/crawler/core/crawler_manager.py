@@ -84,8 +84,10 @@ class CrawlerManager:
                                   if os.path.isdir(os.path.join(language_dir, d))]
                     
                     if genre_dirs:
-                        self.logger.info(f"Found {len(genre_dirs)} genre directories")
+                        self.logger.info(f"Found {len(genre_dirs)} genre directories, starting detail crawler")
                         self.detail_crawler.start()
+                    else:
+                        self.logger.info("No genre directories found, waiting for genre processor...")
                     
                 except Exception as e:
                     self.logger.error(f"Error in detail crawler: {str(e)}")
@@ -101,6 +103,19 @@ class CrawlerManager:
     
     def start(self):
         """Start the crawling process."""
+        self.logger.info("Starting crawler manager...")
+
+        # 清除 existing 标志的逻辑
+        if self.clear_existing:
+            self.logger.info("Clear existing data flag is set. Clearing detail progress...")
+            if self.progress_manager:
+                self.progress_manager.clear_detail_progress()
+            else:
+                self.logger.warning("Progress manager not initialized, clear_existing has no effect on progress.")
+        else:
+            self.logger.info("Clear existing data flag is not set.")
+
+
         # 创建并启动类型处理线程
         genre_thread = threading.Thread(target=self._genre_processor_thread)
         genre_thread.start()
