@@ -104,137 +104,205 @@ class DetailCrawler:
 
 
     def _get_video_urls(self, video_id):
-        """Get video URLs from ajax API.
-        
-        Args:
-            video_id (str): Video ID
-            
-        Returns:
-            tuple: (watch_url, download_url) or (None, None) if failed
-        """
-        try:
-            ajax_url = f'https://123av.com/ja/ajax/v/{video_id}/videos'
-            self._logger.info(f"Requesting ajax URL: {ajax_url}")
-            
-            time.sleep(random.uniform(1, 3))  # Rate limiting
-            
-            response = self._session.get(ajax_url, timeout=10)
-            if response.status_code != 200:
-                self._logger.error(f"Failed to fetch video URLs: {response.status_code}")
-                return None, None
-            
-            data = response.json()
-            if not data.get('result') or not data['result'].get('watch'):
-                self._logger.error("Invalid ajax response format")
-                return None, None
-            
-            watch_urls = data['result']['watch']
-            download_urls = data['result'].get('download', [])
-            
-            return (watch_urls[0]['url'] if watch_urls else None,
-                    download_urls[0]['url'] if download_urls else None)
-                    
-        except Exception as e:
-            self._logger.error(f"Error getting video URLs: {str(e)}")
-            return None, None
+            """Get video URLs from ajax API, including index and name.
+
+            Args:
+                video_id (str): Video ID
+
+            Returns:
+                tuple: (watch_urls_info, download_urls_info) or ([], []) if failed.
+                    watch_urls_info: list of dicts, each dict contains 'index', 'name', 'url'
+                    download_urls_info: list of dicts, each dict contains 'index', 'name', 'url' (if available)
+            """
+            watch_urls_info = []
+            download_urls_info = []
+            try:
+                ajax_url = f'https://123av.com/ja/ajax/v/{video_id}/videos'
+                self._logger.info(f"Requesting ajax URL: {ajax_url}")
+
+                time.sleep(random.uniform(1, 3))  # Rate limiting
+
+                response = self._session.get(ajax_url, timeout=10)
+                if response.status_code != 200:
+                    self._logger.error(f"Failed to fetch video URLs: {response.status_code}")
+                    return [], []  # Return empty lists on failure
+
+                data = response.json()
+                if not data.get('result') or not data['result'].get('watch'):
+                    self._logger.error("Invalid ajax response format")
+                    return [], []  # Return empty lists on invalid response
+
+                watch_urls = data['result']['watch']
+                download_urls = data['result'].get('download', [])
+
+                if watch_urls:
+                    watch_urls_info = [{'index': item['index'], 'name': item['name'], 'url': item['url']} for item in watch_urls]
+                if download_urls:
+                    download_urls_info = [{'index': item['index'], 'name': item['name'], 'url': item['url']} for item in download_urls]
+
+                return watch_urls_info, download_urls_info
+
+            except Exception as e:
+                self._logger.error(f"Error getting video URLs: {str(e)}")
+                return [], []  # Return empty lists on exception
+
     
     def _extract_m3u8_info(self, video_id, cover_url):
-        """Extract M3U8 and VTT information from javplayer.
-        
+        """Extract M3U8 and VTT information from javplayer for all watch URLs.
+
         Args:
             video_id (str): Video ID
             cover_url (str): URL of the movie poster
-            
+
         Returns:
-            tuple: (m3u8_url, vtt_url) or (None, None) if extraction fails
+            list: A list of results, where each result is a dict or None.
+                Each dict contains:
+                    'm3u8_url': URL of the M3U8 stream (or None if extraction fails for this watch URL)
+                    'vtt_url': URL of the VTT subtitle file (or None if extraction fails for this watch URL)
+                    'watch_url_info': The watch URL info dictionary (index, name, url)
+                    'download_urls_info': The download URL info list (same for all watch URLs in this call)
+
+                Returns an empty list if _get_video_urls itself fails significantly.
         """
+        results = [] # Initialize a list to store results for each watch URL
+        watch_urls_info = [] # Initialize to return even on failure
+        download_urls_info = [] # Initialize to return even on failure
+
         try:
-            # 1. 获取视频URL
-            watch_url, _ = self._get_video_urls(video_id)
-            if not watch_url:
-                return None, None
+            # 1. 获取视频URLs信息 (now returns a list)
+            watch_urls_info, download_urls_info = self._get_video_urls(video_id)
+
+            if not watch_urls_info:
+                self._logger.error("No watch URLs found from ajax response.")
+                return [] # Return empty list if no watch URLs at all
+
+            # Iterate through each watch URL info
+            for watch_url_detail in watch_urls_info:
+                watch_url = watch_url_detail['url']
+                m3u8_url = None # Initialize for each URL attempt
+                vtt_url = None   # Initialize for each URL attempt
+                current_result = { # Prepare a result dict for each URL
+                    'watch_url_info': watch_url_detail,
+                    'download_urls_info': download_urls_info, # Download URLs are the same for all watch URLs in this response
+                    'm3u8_url': None,
+                    'vtt_url': None,
+                    'extraction_success': False # Flag to indicate success/failure for this specific URL
+                }
+
+                try:
+                    # 2. 构造播放器URL
+                    encoded_cover = urllib.parse.quote(cover_url)
+                    player_url = f"{watch_url}?poster={encoded_cover}"
+
+                    self._logger.info(f"Requesting player URL: {player_url} (Name: {watch_url_detail['name']}, Index: {watch_url_detail['index']})")
+                    time.sleep(random.uniform(1, 3))  # Rate limiting
+
+                    # 3. 获取播放器页面
+                    response = self._session.get(player_url, timeout=10)
+                    if response.status_code != 200:
+                        self._logger.error(f"Failed to fetch player page for watch URL '{watch_url_detail['name']}': HTTP {response.status_code}")
+                        current_result['extraction_success'] = False # Mark failure for this URL, but continue to next
+                        results.append(current_result) # Append result with failure info
+                        continue # Move to the next watch URL
+
+                    # 4. 解析m3u8 URL
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    player_div = soup.find('div', id='player')
+                    if not player_div:
+                        self._logger.error(f"Player div not found for watch URL '{watch_url_detail['name']}'")
+                        current_result['extraction_success'] = False
+                        results.append(current_result)
+                        continue # Move to next watch URL
+
+                    v_scope = player_div.get('v-scope', '')
+                    if not v_scope or 'stream' not in v_scope:
+                        self._logger.error(f"Stream URL not found in v-scope for watch URL '{watch_url_detail['name']}'")
+                        current_result['extraction_success'] = False
+                        results.append(current_result)
+                        continue # Move to next watch URL
+
+                    # 解析v-scope属性中的JSON
                 
-            # 2. 构造播放器URL
-            encoded_cover = urllib.parse.quote(cover_url)
-            player_url = f"{watch_url}?poster={encoded_cover}"
-            
-            self._logger.info(f"Requesting player URL: {player_url}")
-            time.sleep(random.uniform(1, 3))  # Rate limiting
-            
-            # 3. 获取播放器页面
-            response = self._session.get(player_url, timeout=10)
-            if response.status_code != 200:
-                self._logger.error(f"Failed to fetch player page: {response.status_code}")
-                return None, None
-            
-            # 4. 解析m3u8 URL
-            soup = BeautifulSoup(response.text, 'html.parser')
-            player_div = soup.find('div', id='player')
-            if not player_div:
-                self._logger.error("Player div not found")
-                return None, None
-            
-            v_scope = player_div.get('v-scope', '')
-            if not v_scope or 'stream' not in v_scope:
-                self._logger.error("Stream URL not found in v-scope")
-                return None, None
-            
-            # 解析v-scope属性中的JSON
-            try:
-                # 找到第二个参数的JSON开始位置
-                video_start = v_scope.find('Video(')
-                if video_start == -1:
-                    self._logger.error("Video() function not found in v-scope")
-                    return None, None
-                
-                # 找到第二个参数的开始位置
-                first_comma = v_scope.find(',', video_start)
-                if first_comma == -1:
-                    self._logger.error("Comma not found after first parameter")
-                    return None, None
-                
-                json_start = v_scope.find('{', first_comma)
-                if json_start == -1:
-                    self._logger.error("Opening brace not found for second parameter")
-                    return None, None
-                
-                # 找到JSON的结束位置
-                brace_count = 1
-                json_end = json_start + 1
-                while brace_count > 0 and json_end < len(v_scope):
-                    if v_scope[json_end] == '{':
-                        brace_count += 1
-                    elif v_scope[json_end] == '}':
-                        brace_count -= 1
-                    json_end += 1
-                
-                if brace_count > 0:
-                    self._logger.error("Closing brace not found for JSON")
-                    return None, None
-                
-                # 提取JSON字符串
-                json_str = v_scope[json_start:json_end]
-                json_str = json_str.replace('"', '"')
-                
-                # 解析JSON
-                stream_data = json.loads(json_str)
-                
-                m3u8_url = stream_data.get('stream')
-                vtt_url = stream_data.get('vtt')
-                
-                if not m3u8_url or not vtt_url:
-                    self._logger.error("Stream or VTT URL not found in JSON data")
-                    return None, None
-                
-                return m3u8_url, vtt_url
-                
-            except json.JSONDecodeError as e:
-                self._logger.error(f"Failed to parse JSON from v-scope: {e}")
-                return None, None
-                
+                    # ... (JSON parsing logic remains the same as before) ...
+                    # 解析v-scope属性中的JSON
+                    try:
+                        # 找到第二个参数的JSON开始位置
+                        video_start = v_scope.find('Video(')
+                        if video_start == -1:
+                            self._logger.error(f"Video() function not found in v-scope for watch URL '{watch_url_detail['name']}'")
+                            current_result['extraction_success'] = False
+                            results.append(current_result)
+                            continue
+
+                        # 找到第二个参数的开始位置
+                        first_comma = v_scope.find(',', video_start)
+                        if first_comma == -1:
+                            self._logger.error(f"Comma not found after first parameter for watch URL '{watch_url_detail['name']}'")
+                            current_result['extraction_success'] = False
+                            results.append(current_result)
+                            continue
+
+                        json_start = v_scope.find('{', first_comma)
+                        if json_start == -1:
+                            self._logger.error(f"Opening brace not found for second parameter for watch URL '{watch_url_detail['name']}'")
+                            current_result['extraction_success'] = False
+                            results.append(current_result)
+                            continue
+
+                        # 找到JSON的结束位置
+                        brace_count = 1
+                        json_end = json_start + 1
+                        while brace_count > 0 and json_end < len(v_scope):
+                            if v_scope[json_end] == '{':
+                                brace_count += 1
+                            elif v_scope[json_end] == '}':
+                                brace_count -= 1
+                            json_end += 1
+
+                        if brace_count > 0:
+                            self._logger.error(f"Closing brace not found for JSON for watch URL '{watch_url_detail['name']}'")
+                            current_result['extraction_success'] = False
+                            results.append(current_result)
+                            continue
+
+                        # 提取JSON字符串
+                        json_str = v_scope[json_start:json_end]
+                        json_str = json_str.replace('"', '"')
+
+                        # 解析JSON
+                        stream_data = json.loads(json_str)
+
+                        m3u8_url = stream_data.get('stream')
+                        vtt_url = stream_data.get('vtt')
+
+                        if not m3u8_url or not vtt_url:
+                            self._logger.error(f"Stream or VTT URL not found in JSON data for watch URL '{watch_url_detail['name']}'")
+                            current_result['extraction_success'] = False
+                            results.append(current_result)
+                            continue
+
+                        current_result['m3u8_url'] = m3u8_url # Assign extracted URLs to current result
+                        current_result['vtt_url'] = vtt_url
+                        current_result['extraction_success'] = True # Mark as successful for this URL
+                        results.append(current_result) # Append successful result
+
+                    except json.JSONDecodeError as e:
+                        self._logger.error(f"Failed to parse JSON from v-scope for watch URL '{watch_url_detail['name']}': {e}")
+                        current_result['extraction_success'] = False
+                        results.append(current_result)
+                        continue # Move to next watch URL
+
+                except Exception as e:
+                    self._logger.error(f"Error extracting video info for watch URL '{watch_url_detail['name']}'. Error: {str(e)}")
+                    current_result['extraction_success'] = False
+                    results.append(current_result)
+                    continue # Move to next watch URL
+
+            return results # Return the list of results for all watch URLs
+
         except Exception as e:
-            self._logger.error(f"Error extracting video info: {str(e)}")
-            return None, None
+            self._logger.error(f"Error in _extract_m3u8_info for video_id {video_id}: {str(e)}")
+            return [] # Return empty list if major error in initial steps
 
     def _parse_video_info(self, soup, id):
         """Parse video information from the detail page.
