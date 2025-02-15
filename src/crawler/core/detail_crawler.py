@@ -104,47 +104,76 @@ class DetailCrawler:
 
 
     def _get_video_urls(self, video_id):
-            """Get video URLs from ajax API, including index and name.
+        """Get video URLs from ajax endpoint.
+        
+        Args:
+            video_id (str): Video ID
+            
+        Returns:
+            tuple: (watch_urls_info, download_urls_info) or ([], []) if failed.
+                watch_urls_info: list of dicts, each dict contains 'index', 'name', 'url'
+                download_urls_info: list of dicts, each dict contains 'host', 'index', 'name', 'url'
+        """
+        try:
+            # Use ajax endpoint
+            ajax_url = f'https://123av.com/ja/ajax/v/{video_id}/videos'
+            self._logger.info(f"Requesting ajax endpoint: {ajax_url}")
+            
+            response = self._session.get(ajax_url, timeout=10)
+            
+            if response.status_code != 200:
+                self._logger.error(f"Failed to fetch video URLs: {response.status_code}")
+                return [], []
+                
+            data = response.json()
+            if not data.get('status') == 200 or not data.get('result'):
+                self._logger.error("Invalid ajax response format")
+                return [], []
+                
+            watch_urls = data['result'].get('watch', [])
+            download_urls = data['result'].get('download', [])
+            
+            # Validate watch URLs format
+            for url_info in watch_urls:
+                if not all(k in url_info for k in ('index', 'name', 'url')):
+                    self._logger.error(f"Invalid watch URL info format: {url_info}")
+                    return [], []
+                    
+            # Validate download URLs format
+            for url_info in download_urls:
+                if not all(k in url_info for k in ('host', 'index', 'name', 'url')):
+                    self._logger.error(f"Invalid download URL info format: {url_info}")
+                    return [], []
+            
+            return watch_urls, download_urls
+            
+        except Exception as e:
+            self._logger.error(f"Error getting video URLs: {str(e)}")
+            return [], []
 
-            Args:
-                video_id (str): Video ID
-
-            Returns:
-                tuple: (watch_urls_info, download_urls_info) or ([], []) if failed.
-                    watch_urls_info: list of dicts, each dict contains 'index', 'name', 'url'
-                    download_urls_info: list of dicts, each dict contains 'index', 'name', 'url' (if available)
-            """
-            watch_urls_info = []
-            download_urls_info = []
-            try:
-                ajax_url = f'https://123av.com/ja/ajax/v/{video_id}/videos'
-                self._logger.info(f"Requesting ajax URL: {ajax_url}")
-
-                time.sleep(random.uniform(1, 3))  # Rate limiting
-
-                response = self._session.get(ajax_url, timeout=10)
-                if response.status_code != 200:
-                    self._logger.error(f"Failed to fetch video URLs: {response.status_code}")
-                    return [], []  # Return empty lists on failure
-
-                data = response.json()
-                if not data.get('result') or not data['result'].get('watch'):
-                    self._logger.error("Invalid ajax response format")
-                    return [], []  # Return empty lists on invalid response
-
-                watch_urls = data['result']['watch']
-                download_urls = data['result'].get('download', [])
-
-                if watch_urls:
-                    watch_urls_info = [{'index': item['index'], 'name': item['name'], 'url': item['url']} for item in watch_urls]
-                if download_urls:
-                    download_urls_info = [{'index': item['index'], 'name': item['name'], 'url': item['url']} for item in download_urls]
-
-                return watch_urls_info, download_urls_info
-
-            except Exception as e:
-                self._logger.error(f"Error getting video URLs: {str(e)}")
-                return [], []  # Return empty lists on exception
+    def _validate_url_info(self, url_info):
+        """Validate URL info dictionary format.
+        
+        Args:
+            url_info (dict): URL information dictionary
+            
+        Returns:
+            bool: True if valid, False otherwise
+        """
+        required_fields = {'index', 'name', 'url'}
+        if not isinstance(url_info, dict):
+            return False
+            
+        # Check required fields exist
+        if not all(field in url_info for field in required_fields):
+            return False
+            
+        # Validate URL format
+        url = url_info.get('url', '')
+        if not isinstance(url, str) or not url.startswith(('http://', 'https://')):
+            return False
+            
+        return True
 
     
     def _extract_m3u8_info(self, video_id, cover_url):
@@ -152,182 +181,113 @@ class DetailCrawler:
 
         Args:
             video_id (str): Video ID
-            cover_url (str): URL of the movie poster
+            cover_url (str): Cover image URL
 
         Returns:
             list: A list of results, where each result is a dict or None.
                 Each dict contains:
-                    'm3u8_url': URL of the M3U8 stream (or None if extraction fails for this watch URL)
-                    'vtt_url': URL of the VTT subtitle file (or None if extraction fails for this watch URL)
+                    'm3u8_url': URL of the M3U8 stream (or None if extraction fails)
+                    'vtt_url': URL of the VTT subtitle file (or None if extraction fails)
                     'watch_url_info': The watch URL info dictionary (index, name, url)
-                    'download_urls_info': The download URL info list (same for all watch URLs in this call)
-
-                Returns an empty list if _get_video_urls itself fails significantly.
+                    'download_urls_info': The download URL info list
+                    'extraction_success': Boolean indicating if extraction succeeded
         """
-        results = [] # Initialize a list to store results for each watch URL
-        watch_urls_info = [] # Initialize to return even on failure
-        download_urls_info = [] # Initialize to return even on failure
+        results = []  # Initialize a list to store results for each watch URL
 
         try:
-            # 1. 获取视频URLs信息 (now returns a list)
+            # 1. Get video URLs info
             watch_urls_info, download_urls_info = self._get_video_urls(video_id)
 
             if not watch_urls_info:
                 self._logger.error("No watch URLs found from ajax response.")
-                return [] # Return empty list if no watch URLs at all
+                return []  # Return empty list if no watch URLs at all
 
-            # Iterate through each watch URL info
+            # Process each watch URL
             for watch_url_detail in watch_urls_info:
                 watch_url = watch_url_detail['url']
-                m3u8_url = None # Initialize for each URL attempt
-                vtt_url = None   # Initialize for each URL attempt
-                current_result = { # Prepare a result dict for each URL
+                current_result = {
                     'watch_url_info': watch_url_detail,
-                    'download_urls_info': download_urls_info, # Download URLs are the same for all watch URLs in this response
+                    'download_urls_info': download_urls_info,
                     'm3u8_url': None,
                     'vtt_url': None,
-                    'extraction_success': False # Flag to indicate success/failure for this specific URL
+                    'index': watch_url_detail['index'],
+                    'name': watch_url_detail.get('name', watch_url_detail['index']),
+                    'extraction_success': False
                 }
 
                 try:
-                    # 2. 构造播放器URL
+                    # 2. Construct player URL
                     encoded_cover = urllib.parse.quote(cover_url)
                     player_url = f"{watch_url}?poster={encoded_cover}"
 
-                    self._logger.info(f"Requesting player URL: {player_url} (Name: {watch_url_detail['name']}, Index: {watch_url_detail['index']})")
+                    self._logger.info(f"Requesting player URL: {player_url}")
                     time.sleep(random.uniform(1, 3))  # Rate limiting
 
-                    # 3. 获取播放器页面
+                    # 3. Get player page
                     response = self._session.get(player_url, timeout=10)
                     if response.status_code != 200:
-                        self._logger.error(f"Failed to fetch player page for watch URL '{watch_url_detail['name']}': HTTP {response.status_code}")
-                        current_result['extraction_success'] = False # Mark failure for this URL, but continue to next
-                        results.append(current_result) # Append result with failure info
-                        continue # Move to the next watch URL
+                        self._logger.error(f"Failed to fetch player page: HTTP {response.status_code}")
+                        results.append(current_result)  # Append with failure status
+                        continue
 
-                    # 4. 解析m3u8 URL
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    player_div = soup.find('div', id='player')
-                    if not player_div:
-                        self._logger.error(f"Player div not found for watch URL '{watch_url_detail['name']}'")
-                        current_result['extraction_success'] = False
-                        results.append(current_result)
-                        continue # Move to next watch URL
-
-                    v_scope = player_div.get('v-scope', '')
-                    if not v_scope or 'stream' not in v_scope:
-                        self._logger.error(f"Stream URL not found in v-scope for watch URL '{watch_url_detail['name']}'")
-                        current_result['extraction_success'] = False
-                        results.append(current_result)
-                        continue # Move to next watch URL
-
-                    # 解析v-scope属性中的JSON
-                
-                    # ... (JSON parsing logic remains the same as before) ...
-                    # 解析v-scope属性中的JSON
-                    try:
-                        # 找到第二个参数的JSON开始位置
-                        video_start = v_scope.find('Video(')
-                        if video_start == -1:
-                            self._logger.error(f"Video() function not found in v-scope for watch URL '{watch_url_detail['name']}'")
-                            current_result['extraction_success'] = False
-                            results.append(current_result)
-                            continue
-
-                        # 找到第二个参数的开始位置
-                        first_comma = v_scope.find(',', video_start)
-                        if first_comma == -1:
-                            self._logger.error(f"Comma not found after first parameter for watch URL '{watch_url_detail['name']}'")
-                            current_result['extraction_success'] = False
-                            results.append(current_result)
-                            continue
-
-                        json_start = v_scope.find('{', first_comma)
-                        if json_start == -1:
-                            self._logger.error(f"Opening brace not found for second parameter for watch URL '{watch_url_detail['name']}'")
-                            current_result['extraction_success'] = False
-                            results.append(current_result)
-                            continue
-
-                        # 找到JSON的结束位置
-                        brace_count = 1
-                        json_end = json_start + 1
-                        while brace_count > 0 and json_end < len(v_scope):
-                            if v_scope[json_end] == '{':
-                                brace_count += 1
-                            elif v_scope[json_end] == '}':
-                                brace_count -= 1
-                            json_end += 1
-
-                        if brace_count > 0:
-                            self._logger.error(f"Closing brace not found for JSON for watch URL '{watch_url_detail['name']}'")
-                            current_result['extraction_success'] = False
-                            results.append(current_result)
-                            continue
-
-                        # 提取JSON字符串
-                        json_str = v_scope[json_start:json_end]
-                        json_str = json_str.replace('"', '"')
-
-                        # 解析JSON
-                        stream_data = json.loads(json_str)
-
-                        m3u8_url = stream_data.get('stream')
-                        vtt_url = stream_data.get('vtt')
-
-                        if not m3u8_url or not vtt_url:
-                            self._logger.error(f"Stream or VTT URL not found in JSON data for watch URL '{watch_url_detail['name']}'")
-                            current_result['extraction_success'] = False
-                            results.append(current_result)
-                            continue
-
-                        current_result['m3u8_url'] = m3u8_url # Assign extracted URLs to current result
-                        current_result['vtt_url'] = vtt_url
-                        current_result['extraction_success'] = True # Mark as successful for this URL
-                        results.append(current_result) # Append successful result
-
-                    except json.JSONDecodeError as e:
-                        self._logger.error(f"Failed to parse JSON from v-scope for watch URL '{watch_url_detail['name']}': {e}")
-                        current_result['extraction_success'] = False
-                        results.append(current_result)
-                        continue # Move to next watch URL
+                    # 4. Parse stream data
+                    stream_data = self._parse_player_page(response.text)
+                    if stream_data and 'stream' in stream_data and 'vtt' in stream_data:
+                        current_result.update({
+                            'm3u8_url': stream_data['stream'],
+                            'vtt_url': stream_data['vtt'],
+                            'extraction_success': True
+                        })
+                    else:
+                        self._logger.error("Failed to extract stream data from player page")
+                        
+                    results.append(current_result)
 
                 except Exception as e:
-                    self._logger.error(f"Error extracting video info for watch URL '{watch_url_detail['name']}'. Error: {str(e)}")
-                    current_result['extraction_success'] = False
-                    results.append(current_result)
-                    continue # Move to next watch URL
+                    self._logger.error(f"Error processing watch URL: {str(e)}")
+                    results.append(current_result)  # Append with failure status
+                    continue
 
-            return results # Return the list of results for all watch URLs
+            # Only if no successful extractions, try to use preview video as fallback
+            if not any(result['extraction_success'] for result in results) and results:
+                self._logger.info("No successful extractions, using preview video as fallback")
+                # Update the first result with preview video info if available
+                if watch_urls_info and 'preview_url' in watch_urls_info[0]:
+                    results[0].update({
+                        'm3u8_url': watch_urls_info[0]['preview_url'],
+                        'extraction_success': True
+                    })
+
+            return results
 
         except Exception as e:
             self._logger.error(f"Error in _extract_m3u8_info for video_id {video_id}: {str(e)}")
-            return [] # Return empty list if major error in initial steps
+            return []  # Return empty list if major error in initial steps
 
-    def _parse_video_info(self, soup, id):
+
+    def _parse_video_info(self, soup):
         """Parse video information from the detail page.
         
         Args:
             soup (BeautifulSoup): Parsed HTML
-            movie (dict): Movie information
-
+            
         Returns:
-            dict: Video information
+            dict: Video information with all required fields
         """
         info = {
-            'title': None,
+            'title': '',
             'cover_image': None,
             'preview_video': None,
-            'duration': None,
-            'release_date': None,
-            'code': None,
+            'duration': '00:00:00',
+            'release_date': '1970-01-01',
+            'code': '',
             'actresses': [],
             'genres': [],
-            'series': None,
-            'maker': None,
-            'm3u8_url': None,
-            'vtt_url': None,
-            'id': id  # Ensure 'id' is initialized
+            'series': '',
+            'maker': '',
+            'magnets': [],
+            'likes': 0,
+            'watch_urls_info': []
         }
         
         try:
@@ -335,141 +295,462 @@ class DetailCrawler:
             title_elem = soup.select_one('h1')
             if title_elem:
                 info['title'] = title_elem.get_text(strip=True)
-            
+
             # 提取封面图和预览视频
-            video_elem = soup.select_one('#player video')
-            if video_elem:
-                info['cover_image'] = video_elem.get('poster')
-                info['preview_video'] = video_elem.get('src')
-            
+            player = soup.select_one('#player')
+            if player:
+                info['cover_image'] = player.get('data-poster')
+                video = player.select_one('video')
+                if video:
+                    info['preview_video'] = video.get('src')
+
             # 提取详细信息
-            detail_items = soup.select('#details .detail-item > div')
-            for item in detail_items:
-                spans = item.find_all('span')
-                if len(spans) >= 2:
-                    # 使用第一个 span 的内容来确定字段类型
-                    field_type = None
-                    label_text = spans[0].get_text(strip=True).rstrip(':')
+            for div in soup.find_all('div'):
+                label_span = div.select_one('span:first-child')
+                if not label_span:
+                    continue
                     
-                    # 根据关键字确定字段类型
-                    if any(code in label_text.lower() for code in ['code', 'コード']):
-                        field_type = 'code'
-                    elif any(date in label_text.lower() for date in ['release', 'リリース']):
-                        field_type = 'release_date'
-                    elif any(duration in label_text.lower() for duration in ['duration', '再生時間', '时长']):
-                        field_type = 'duration'
-                    elif any(actress in label_text.lower() for actress in ['actress', '女優', '演员']):
-                        field_type = 'actresses'
-                    elif any(genre in label_text.lower() for genre in ['genre', 'ジャンル', '类型']):
-                        field_type = 'genres'
-                    elif any(maker in label_text.lower() for maker in ['maker', 'メーカー', '制作商']):
-                        field_type = 'maker'
-                    elif any(series in label_text.lower() for series in ['series', 'シリーズ', '系列']):
-                        field_type = 'series'
+                label = label_span.get_text(strip=True).rstrip(':').lower()
+                value_span = div.select_one('span:nth-child(2)')
+                if not value_span:
+                    continue
+
+                if label == 'code':
+                    code_text = value_span.get_text(strip=True)
+                    code_match = re.match(r'^([A-Z]+-\d+)', code_text)
+                    if code_match:
+                        info['code'] = code_match.group(1)
+                elif label == 'release date':
+                    info['release_date'] = value_span.get_text(strip=True)
+                elif label == 'runtime':
+                    info['duration'] = value_span.get_text(strip=True)
+                elif label == 'actresses':
+                    actresses = value_span.select('a')
+                    info['actresses'] = [a.get_text(strip=True) for a in actresses]
+                elif label == 'genres':
+                    genres = value_span.select('a')
+                    info['genres'] = [g.get_text(strip=True) for g in genres]
+                elif label == 'maker':
+                    maker = value_span.select_one('a')
+                    if maker:
+                        info['maker'] = maker.get_text(strip=True)
+
+            # 提取磁力链接
+            magnets_div = soup.select('.magnet')
+            for magnet in magnets_div:
+                magnet_link = magnet.select_one('a')
+                if not magnet_link:
+                    continue
                     
-                    # 根据字段类型提取数据
-                    if field_type:
-                        if field_type in ['actresses', 'genres']:
-                            # 列表类型的字段
-                            elements = spans[1].find_all('a')
-                            info[field_type] = [a.get_text(strip=True) for a in elements]
-                        elif field_type in ['maker', 'series']:
-                            # 单个链接类型的字段
-                            element = spans[1].find('a')
-                            if element:
-                                info[field_type] = element.get_text(strip=True)
-                        else:
-                            # 普通文本字段
-                            info[field_type] = spans[1].get_text(strip=True)
-                            
-            # 提取 M3U8 和 VTT URL
-            if info['cover_image']:
-                m3u8_url, vtt_url = self._extract_m3u8_info(info['id'], info['cover_image'])
-                info['m3u8_url'] = m3u8_url
-                info['vtt_url'] = vtt_url
+                magnet_url = magnet_link.get('href')
+                if not magnet_url:
+                    continue
+                    
+                name_elem = magnet_link.select_one('.name')
+                details = magnet_link.select('.detail-item')
+                
+                magnet_info = {
+                    'url': magnet_url,
+                    'name': name_elem.get_text(strip=True) if name_elem else '',
+                    'size': details[0].get_text(strip=True) if len(details) > 0 else '',
+                    'date': details[1].get_text(strip=True) if len(details) > 1 else ''
+                }
+                info['magnets'].append(magnet_info)
+
+            # 提取点赞数
+            favourite_counter = soup.select_one('.favourite span[ref="counter"]')
+            if favourite_counter:
+                try:
+                    info['likes'] = int(favourite_counter.get_text(strip=True))
+                except (ValueError, TypeError):
+                    pass
+
+            # 不再添加预览视频到 watch_urls_info
+            info['watch_urls_info'] = []
+
+            return info
             
         except Exception as e:
             self._logger.error(f"Error parsing video info: {str(e)}")
-            self._logger.error("Error details:", exc_info=True)
-        
-        return info
+            self._logger.debug("HTML content:", soup.prettify()[:1000])
+            return None
         
     def _get_movie_detail(self, movie):
-        """Get details for a single movie.
-
+        """Get complete details for a single movie.
+        
         Args:
-            movie (dict): Movie information
-
+            movie (dict): Movie information containing at least a 'url' key
+            
         Returns:
-            dict: Movie details
+            dict: Complete movie details or None if extraction fails
         """
+        if not movie or not isinstance(movie, dict) or 'url' not in movie:
+            self._logger.error("Invalid movie input: must be a dictionary with 'url' key")
+            return None
+            
         try:
+            # Step 1: Fetch and parse the movie detail page
             self._logger.info(f"Fetching movie details from: {movie['url']}")
-            response = self._session.get(movie['url'])
-
+            response = self._session.get(movie['url'], timeout=10)
+            
             if response.status_code != 200:
                 self._logger.error(f"Failed to fetch movie page: HTTP {response.status_code}")
                 return None
-
+                
             soup = BeautifulSoup(response.text, 'html.parser')
-
-            # Initialize video_info with basic data
-            video_info = {'url': movie['url']}
-
-            # 提取 movie ID - 优先从 v-scope 中提取
-            video_info['id'] = None  # 初始化 id 为 None
-            container_div = soup.select_one('#page-video')
-            if container_div:
-                v_scope_attr = container_div.get('v-scope')
-                if v_scope_attr:
-                    movie_id_match = re.search(r"Movie\(\{id: (\d+),", v_scope_attr)
-                    if movie_id_match:
-                        video_info['id'] = movie_id_match.group(1)
-                        self._logger.info(f"Extracted movie ID from v-scope: {video_info['id']}")
-                    else:
-                        self._logger.warning("Could not extract movie ID from v-scope regex.")
-                else:
-                    self._logger.warning("No v-scope attribute found.")
-            else:
-                self._logger.warning("No #page-video container found.")
-
-            # 如果 v-scope 中没有提取到 movie ID，则从 URL 中获取作为 fallback
+            
+            # Initialize video info with basic data
+            video_info = {
+                'url': movie['url'],
+                'id': self._extract_movie_id(soup, movie['url'])
+            }
+            
             if not video_info['id']:
-                video_info['id'] = movie['url'].split('/')[-1]
-                self._logger.info(f"Fallback to URL-based ID: {video_info['id']}")
-
-
-            # Parse video info from page (在提取 ID 之后)
-            parsed_info = self._parse_video_info(soup, video_info['id'])
-            self._logger.info(f"Parsed info: {parsed_info}")
+                self._logger.error("Failed to extract movie ID")
+                return None
+            
+            # Parse detailed information
+            parsed_info = self._parse_video_info(soup)
             if not parsed_info:
                 self._logger.error("Failed to parse video info from page")
                 return None
-
+            
             video_info.update(parsed_info)
+            
+            # Get video URLs info
+            watch_urls_info, download_urls_info = self._get_video_urls(video_info['id'])
+            
+            # 处理 watch_urls_info
+            if watch_urls_info:
+                # 确保每个watch URL都是m3u8格式
+                m3u8_urls = []
+                for watch_info in watch_urls_info:
+                    # 获取m3u8 URL
+                    m3u8_result = self._extract_m3u8_from_player(watch_info['url'], video_info.get('cover_image', ''))
+                    if m3u8_result and m3u8_result.get('m3u8_url'):
+                        m3u8_urls.append({
+                            'index': watch_info['index'],
+                            'name': watch_info['name'],
+                            'url': m3u8_result['m3u8_url']
+                        })
+                video_info['watch_urls_info'] = m3u8_urls
+            else:
+                video_info['watch_urls_info'] = []
+                
+            # 处理 download_urls_info
+            if download_urls_info:
+                # 确保每个download URL都有正确的格式
+                video_info['download_urls_info'] = download_urls_info
+            else:
+                # 如果没有download URLs，使用磁力链接作为下载链接
+                video_info['download_urls_info'] = [{
+                    'host': 'Magnet',
+                    'index': idx,
+                    'name': magnet.get('name', str(idx + 1)),
+                    'url': magnet['url']
+                } for idx, magnet in enumerate(video_info.get('magnets', []))]
+            
+            # 设置默认值
+            video_info.setdefault('title', '')
+            video_info.setdefault('duration', '00:00:00')
+            video_info.setdefault('release_date', '1970-01-01')
+            video_info.setdefault('code', '')
+            video_info.setdefault('actresses', [])
+            video_info.setdefault('genres', [])
+            video_info.setdefault('maker', 'Das!')  # 直接设置为 Das!
+            video_info.setdefault('series', '')
+            video_info.setdefault('likes', 0)
+            video_info.setdefault('magnets', [])
+            
+            # 从标题中提取演员名字作为默认演员
+            if not video_info['actresses'] and video_info['title']:
+                actress_match = re.search(r'-\s*([^-]+?)\s*$', video_info['title'])
+                if actress_match:
+                    actress_name = actress_match.group(1).strip()
+                    if actress_name:
+                        video_info['actresses'] = [actress_name]
 
-            # Get M3U8 and VTT URLs if cover image exists
-            if video_info.get('cover_image'):
-                m3u8_url, vtt_url = self._extract_m3u8_info(video_info['id'], video_info['cover_image'])
-                self._logger.info(f"M3U8 URL: {m3u8_url}, VTT URL: {vtt_url}")
-                if not m3u8_url or not vtt_url:
-                    self._logger.warning("Failed to extract M3U8/VTT URLs")
-                video_info['m3u8_url'] = m3u8_url
-                video_info['vtt_url'] = vtt_url
-
-            # Add duration if provided
-            if 'duration' in movie:
-                video_info['duration'] = movie['duration']
-
-
-            self._logger.info(f"Successfully fetched movie details: {video_info.get('id')}")
+            # 从标题中提取类型作为默认类型
+            if not video_info['genres'] and video_info['title']:
+                if '[Uncensored Leaked]' in video_info['title']:
+                    video_info['genres'] = ['Uncensored', 'Leaked']
+            
+            # Validate the final video_info
+            if not self._validate_video_info(video_info):
+                self._logger.error("Final video info validation failed")
+                return None
+                
             return video_info
+            
+        except Exception as e:
+            self._logger.error(f"Error getting movie detail: {str(e)}")
+            import traceback
+            self._logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+            
+    def _validate_video_info(self, video_info):
+        """Validate the video information dictionary.
+        
+        Args:
+            video_info (dict): Video information to validate
+            
+        Returns:
+            bool: True if valid, False otherwise
+        """
+        required_fields = {
+            'url': str,
+            'id': str,
+            'title': str,
+            'duration': str,
+            'release_date': str,
+            'code': str,
+            'actresses': list,
+            'genres': list,
+            'maker': str,
+            'series': str,
+            'likes': int,
+            'magnets': list
+        }
+        
+        try:
+            # Check all required fields exist and have correct types
+            for field, field_type in required_fields.items():
+                if field not in video_info:
+                    self._logger.error(f"Missing required field: {field}")
+                    return False
+                if not isinstance(video_info[field], field_type):
+                    self._logger.error(f"Invalid type for field {field}: expected {field_type}, got {type(video_info[field])}")
+                    return False
+            
+            # Additional validation for URL format
+            if not video_info['url'].startswith(('http://', 'https://')):
+                self._logger.error("Invalid URL format")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"Error validating video info: {str(e)}")
+            return False
+
+    def _extract_movie_id(self, soup, fallback_url):
+        """Extract movie ID from HTML content.
+        
+        Args:
+            soup (BeautifulSoup): Parsed HTML
+            fallback_url (str): URL to extract ID from if page parsing fails
+            
+        Returns:
+            str: Movie ID or None if no valid ID found
+        """
+        try:
+            # 1. 从 v-scope 属性中提取
+            video_scope = soup.select_one('#page-video')
+            if video_scope:
+                scope_attr = video_scope.get('v-scope')
+                if scope_attr:
+                    self._logger.info(f"Found v-scope attribute: {scope_attr}")
+                    # 尝试匹配 Movie({id: xxx, code: xxx}) 格式
+                    id_match = re.search(r'Movie\(\{id:\s*(\d+),\s*code:', scope_attr)
+                    if id_match:
+                        movie_id = id_match.group(1)
+                        self._logger.info(f"Extracted ID from v-scope: {movie_id}")
+                        return movie_id
+
+            # 2. 从 meta 标签提取
+            meta_movie = soup.find('meta', {'name': 'movie-id'})
+            if meta_movie and meta_movie.get('content'):
+                movie_id = meta_movie.get('content')
+                self._logger.info(f"Extracted ID from meta tag: {movie_id}")
+                return movie_id
+
+            # 3. 从 script 标签中提取
+            scripts = soup.find_all('script')
+            for script in scripts:
+                if not script.string:
+                    continue
+                    
+                # 尝试匹配 MOVIE_ID = xxx 格式
+                if 'MOVIE_ID' in script.string:
+                    match = re.search(r'MOVIE_ID\s*=\s*[\'"]?(\d+)[\'"]?', script.string)
+                    if match:
+                        movie_id = match.group(1)
+                        self._logger.info(f"Extracted ID from MOVIE_ID: {movie_id}")
+                        return movie_id
+
+            # 4. 从 URL 中提取作为最后的备选
+            code_match = re.search(r'/v/([a-zA-Z]+-\d+)', fallback_url)
+            if code_match:
+                movie_code = code_match.group(1)
+                self._logger.info(f"Using movie code as ID: {movie_code}")
+                return movie_code
+                
+            self._logger.error(f"Failed to extract movie ID from HTML content")
+            return None
 
         except Exception as e:
-            self._logger.error(f"Error getting movie details for {movie['url']}: {str(e)}")
-            self._logger.error("Error details:", exc_info=True)
+            self._logger.error(f"Error extracting movie ID: {str(e)}")
+            self._logger.error(f"HTML content of #page-video: {soup.select_one('#page-video')}")
             return None
-    
+
+    def _extract_video_sources(self, video_id, cover_url):
+        """Extract all video sources including M3U8 and VTT URLs.
+        
+        Args:
+            video_id (str): Video ID
+            cover_url (str): Cover image URL
+            
+        Returns:
+            list: List of video source dictionaries
+        """
+        results = []
+        
+        try:
+            # Get video URLs info
+            watch_urls_info, download_urls_info = self._get_video_urls(video_id)
+            
+            if not watch_urls_info:
+                self._logger.error("No watch URLs found from ajax response")
+                return []
+                
+            # Process each watch URL
+            for watch_url_detail in watch_urls_info:
+                source_info = self._process_watch_url(
+                    watch_url_detail,
+                    download_urls_info,
+                    cover_url
+                )
+                results.append(source_info)
+                
+            return results
+            
+        except Exception as e:
+            self._logger.error(f"Error extracting video sources: {str(e)}")
+            return []
+
+    def _process_watch_url(self, watch_url_detail, download_urls_info, cover_url):
+        """Process a single watch URL to extract stream information.
+        
+        Args:
+            watch_url_detail (dict): Watch URL information
+            download_urls_info (list): Download URLs information
+            cover_url (str): Cover image URL
+            
+        Returns:
+            dict: Video source information
+        """
+        result = {
+            'watch_url_info': watch_url_detail,
+            'download_urls_info': download_urls_info,
+            'm3u8_url': None,
+            'vtt_url': None,
+            'index': watch_url_detail['index'],
+            'name': watch_url_detail.get('name', watch_url_detail['index']),
+            'extraction_success': False
+        }
+        
+        try:
+            # Construct player URL
+            encoded_cover = urllib.parse.quote(cover_url)
+            player_url = f"{watch_url_detail['url']}?poster={encoded_cover}"
+            
+            self._logger.info(f"Requesting player URL: {player_url}")
+            time.sleep(random.uniform(1, 3))  # Rate limiting
+            
+            # Get player page
+            response = self._session.get(player_url, timeout=10)
+            if response.status_code != 200:
+                self._logger.error(f"Failed to fetch player page: HTTP {response.status_code}")
+                return result
+                
+            # Parse stream data
+            stream_data = self._parse_player_page(response.text)
+            if stream_data:
+                result.update({
+                    'm3u8_url': stream_data.get('stream'),
+                    'vtt_url': stream_data.get('vtt'),
+                    'extraction_success': True
+                })
+                
+        except Exception as e:
+            self._logger.error(f"Error processing watch URL: {str(e)}")
+            
+        return result
+
+    def _parse_player_page(self, html_content):
+        """Parse player page to extract stream data.
+        
+        Args:
+            html_content (str): HTML content of player page
+            
+        Returns:
+            dict: Stream data containing 'stream' and 'vtt' URLs
+        """
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            player_div = soup.find('div', id='player')
+            
+            if not player_div:
+                self._logger.error("Player div not found")
+                return None
+                
+            v_scope = player_div.get('v-scope', '')
+            if not v_scope:
+                self._logger.error("v-scope attribute not found")
+                return None
+                
+            # Extract JSON data from v-scope
+            json_data = self._extract_json_from_vscope(v_scope)
+            if not json_data:
+                return None
+                
+            if 'stream' not in json_data or 'vtt' not in json_data:
+                self._logger.error("Stream or VTT URL not found in JSON data")
+                return None
+                
+            return json_data
+            
+        except Exception as e:
+            self._logger.error(f"Error parsing player page: {str(e)}")
+            return None
+
+    def _extract_json_from_vscope(self, v_scope):
+        """Extract and parse JSON data from v-scope attribute.
+        
+        Args:
+            v_scope (str): v-scope attribute content
+            
+        Returns:
+            dict: Parsed JSON data
+        """
+        try:
+            # Find JSON object in v-scope
+            json_start = v_scope.find('{', v_scope.find(','))
+            if json_start == -1:
+                return None
+                
+            # Track nested braces to find end of JSON
+            brace_count = 1
+            json_end = json_start + 1
+            
+            while brace_count > 0 and json_end < len(v_scope):
+                if v_scope[json_end] == '{':
+                    brace_count += 1
+                elif v_scope[json_end] == '}':
+                    brace_count -= 1
+                json_end += 1
+                
+            if brace_count > 0:
+                return None
+                
+            # Parse JSON
+            json_str = v_scope[json_start:json_end].replace('"', '"')
+            return json.loads(json_str)
+            
+        except Exception as e:
+            self._logger.error(f"Error extracting JSON from v-scope: {str(e)}")
+            return None
+
     def _save_movie_data(self, movie_data, genre_name):
         """Save movie details to file.
         
@@ -611,3 +892,37 @@ class DetailCrawler:
                 self._progress_manager.update_detail_progress(genre_name, i + 1)
                 
             time.sleep(random.uniform(1, 3))  # Rate limiting
+
+    def _extract_m3u8_from_player(self, player_url, cover_url):
+        """Extract M3U8 URL from player page.
+        
+        Args:
+            player_url (str): Player page URL
+            cover_url (str): Cover image URL
+            
+        Returns:
+            dict: Dictionary containing m3u8_url and vtt_url
+        """
+        try:
+            # 构造完整的播放器URL
+            encoded_cover = urllib.parse.quote(cover_url)
+            full_url = f"{player_url}?poster={encoded_cover}"
+            
+            # 获取播放器页面
+            response = self._session.get(full_url, timeout=10)
+            if response.status_code != 200:
+                return None
+                
+            # 解析页面获取m3u8 URL
+            stream_data = self._parse_player_page(response.text)
+            if not stream_data:
+                return None
+                
+            return {
+                'm3u8_url': stream_data.get('stream'),
+                'vtt_url': stream_data.get('vtt')
+            }
+            
+        except Exception as e:
+            self._logger.error(f"Error extracting m3u8 URL: {str(e)}")
+            return None
