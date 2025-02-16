@@ -2,130 +2,79 @@
 
 import logging
 import os
-import threading
-import time
+from concurrent.futures import ThreadPoolExecutor
 from .genre_processor import GenreProcessor
 from .detail_crawler import DetailCrawler
+from ..utils.progress import ProgressManager
 
 class CrawlerManager:
-    """Manager for coordinating genre processor and detail crawler."""
+    """Manager for coordinating different crawlers."""
     
-    def __init__(self, clear_existing=False, threads=3, progress_manager=None, language='en'):
-        """Initialize the crawler manager.
-        
+    def __init__(self, language='en', threads=1, clear_existing=False):
+        """Initialize CrawlerManager.
+
         Args:
-            clear_existing (bool): Whether to clear existing data
+            language (str): Language code
             threads (int): Number of threads to use
-            progress_manager: Optional progress manager instance
-            language (str): Language code (e.g., 'en', 'jp')
+            clear_existing (bool): Whether to clear existing data
         """
-        self.clear_existing = clear_existing
-        self.threads = threads
-        self.progress_manager = progress_manager
-        self.language = language
-        self.logger = logging.getLogger(__name__)
+        self._language = language
+        self._threads = threads
+        self._clear_existing = clear_existing
+        self._logger = logging.getLogger(__name__)
+        self._base_url = f'http://123av.com/{language}'
         
-        # 创建处理器和爬虫
-        self.genre_processor = GenreProcessor(progress_manager, language)
-        self.detail_crawler = DetailCrawler(
-            clear_existing=clear_existing,
-            threads=threads,
-            progress_manager=progress_manager,
-            language=language
-        )
+        # 创建进度管理器
+        self._progress_manager = ProgressManager(language)
         
-        # 创建事件标志
-        self.genre_processing_done = threading.Event()
-        self.detail_processing_done = threading.Event()
-    
-    def _genre_processor_thread(self):
-        """Genre processor thread function."""
-        try:
-            # 获取所有类型
-            genres = self.genre_processor.process_genres()
-            if not genres:
-                self.logger.error("Failed to get genres")
-                return
-            
-            # 处理每个类型
-            for genre in genres:
-                try:
-                    self.genre_processor.process_genre(genre)
-                except Exception as e:
-                    self.logger.error(f"Error processing genre {genre['name']}: {str(e)}")
-                    
-        except Exception as e:
-            self.logger.error(f"Error in genre processor: {str(e)}")
-        finally:
-            # 标记类型处理完成
-            self.genre_processing_done.set()
-    
-    def _detail_crawler_thread(self):
-        """Detail crawler thread function."""
-        try:
-            # 等待一会，让 genre_processor 先创建一些文件
-            time.sleep(10)
-            
-            # 获取语言目录
-            language_dir = os.path.join('genre_movie', self.language)
-            
-            # 等待语言目录创建
-            while not os.path.exists(language_dir):
-                if self.genre_processing_done.is_set():
-                    self.logger.info("Genre processing finished without creating language directory")
-                    return
-                time.sleep(5)
-            
-            # 开始处理
-            while not self.genre_processing_done.is_set() or os.listdir(language_dir):
-                try:
-                    # 获取所有类型目录
-                    genre_dirs = [d for d in os.listdir(language_dir) 
-                                  if os.path.isdir(os.path.join(language_dir, d))]
-                    
-                    if genre_dirs:
-                        self.logger.info(f"Found {len(genre_dirs)} genre directories, starting detail crawler")
-                        self.detail_crawler.start()
-                    else:
-                        self.logger.info("No genre directories found, waiting for genre processor...")
-                    
-                except Exception as e:
-                    self.logger.error(f"Error in detail crawler: {str(e)}")
-                
-                # 等待一会再检查
-                time.sleep(10)
-                
-        except Exception as e:
-            self.logger.error(f"Error in detail crawler thread: {str(e)}")
-        finally:
-            # 标记详情爬虫完成
-            self.detail_processing_done.set()
-    
     def start(self):
         """Start the crawling process."""
-        self.logger.info("Starting crawler manager...")
+        try:
+            self._logger.info("Starting crawler manager...")
+            self._logger.info("Clear existing data flag is not set.")
 
-        # 清除 existing 标志的逻辑
-        if self.clear_existing:
-            self.logger.info("Clear existing data flag is set. Clearing detail progress...")
-            if self.progress_manager:
-                self.progress_manager.clear_detail_progress()
-            else:
-                self.logger.warning("Progress manager not initialized, clear_existing has no effect on progress.")
-        else:
-            self.logger.info("Clear existing data flag is not set.")
+            # Process genres first
+            genre_processor = GenreProcessor(self._base_url, self._language)
+            if not genre_processor.process():
+                self._logger.error("Failed to process genres")
+                return False
 
+            self._logger.info("Successfully processed genres")
 
-        # 创建并启动类型处理线程
-        genre_thread = threading.Thread(target=self._genre_processor_thread)
-        genre_thread.start()
+            # Start detail crawler
+            detail_crawler = DetailCrawler(
+                base_url=self._base_url,
+                language=self._language,
+                threads=self._threads
+            )
+            if not detail_crawler.start():
+                self._logger.error("Failed to process movie details")
+                return False
+
+            self._logger.info("Successfully processed movie details")
+            return True
+
+        except Exception as e:
+            self._logger.error(f"Error in crawler manager: {str(e)}")
+            return False
+            
+    def _clear_data(self):
+        """Clear existing data directories."""
+        dirs_to_clear = [
+            os.path.join('genres', self._language),
+            os.path.join('genre_movie', self._language),
+            os.path.join('movie_details', self._language),
+            os.path.join('failed_movies', self._language)
+        ]
         
-        # 创建并启动详情爬虫线程
-        detail_thread = threading.Thread(target=self._detail_crawler_thread)
-        detail_thread.start()
-        
-        # 等待所有线程完成
-        genre_thread.join()
-        detail_thread.join()
-        
-        self.logger.info("All crawling tasks completed")
+        for dir_path in dirs_to_clear:
+            if os.path.exists(dir_path):
+                for file_name in os.listdir(dir_path):
+                    file_path = os.path.join(dir_path, file_name)
+                    try:
+                        if os.path.isfile(file_path):
+                            os.unlink(file_path)
+                    except Exception as e:
+                        self._logger.error(f"Error deleting file {file_path}: {str(e)}")
+                        
+        self._logger.info("Cleared existing data directories")

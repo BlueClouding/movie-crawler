@@ -13,91 +13,177 @@ from bs4 import BeautifulSoup
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from ..utils.http import create_session
-from ..utils.file_ops import safe_save_json
+from ..utils.file_ops import safe_save_json, safe_read_json
+from ..utils.db import DatabaseManager
+import re
 
 class GenreProcessor:
-    """Processor for handling movie genres and their listings."""
+    """Processor for genre data."""
     
-    def __init__(self, progress_manager=None, language='en'):
-        """Initialize the genre processor.
-        
+    def __init__(self, base_url, language):
+        """Initialize GenreProcessor.
+
         Args:
-            progress_manager: Optional progress manager instance
-            language (str): Language code (e.g., 'en', 'jp')
+            base_url (str): Base URL for the website
+            language (str): Language code
         """
-        self.progress_manager = progress_manager
-        self.logger = logging.getLogger(__name__)
-        self.language = language
+        self._base_url = base_url
+        self._language = language
+        self._logger = logging.getLogger(__name__)
+        self._session = create_session(use_proxy=True)
+        self._db = DatabaseManager()
         
-        # Base URL with language
-        self.base_url = f'http://123av.com/{language}'
-        
-        # 创建语言特定的数据目录
-        self.genres_dir = os.path.join('genres', language)
-        self.movies_dir = os.path.join('genre_movie', language)
-        os.makedirs(self.genres_dir, exist_ok=True)
-        os.makedirs(self.movies_dir, exist_ok=True)
-        
-        # Create session with retry mechanism and SSL handling
-        # Create session
-        self.session = create_session(use_proxy=True)
-    
     def process_genres(self):
-        """Process all genres and return the genre list.
-        If existing genres file found, load from it instead of crawling.
+        """Process and save genres."""
+        try:
+            # 获取类型列表
+            genres = self._fetch_genres()
+            if not genres:
+                self._logger.error("Failed to fetch genres")
+                return None
+                
+            # 保存到数据库
+            saved_genres = []
+            for genre in genres:
+                try:
+                    genre_id = self._save_genre(genre)
+                    if genre_id:
+                        saved_genres.append({
+                            'id': genre_id,
+                            'name': genre['name'],
+                            'url': genre['url'],
+                            'count': genre.get('count', 0)
+                        })
+                except Exception as e:
+                    self._logger.error(f"Error saving genre {genre['name']}: {str(e)}")
+                    continue
+                    
+            self._logger.info(f"Saved {len(saved_genres)} genres to database")
+            return saved_genres
+            
+        except Exception as e:
+            self._logger.error(f"Error processing genres: {str(e)}")
+            return None
+        finally:
+            self._db.close()
+            
+    def _fetch_genres(self):
+        """Fetch genres from website.
         
         Returns:
-            list: List of genre dictionaries with name, url, and video count
+            list: List of genre dictionaries
         """
-        # 检查是否存在最新的 genres 文件
-        latest_genres_file = self._get_latest_genres_file()
-        if latest_genres_file:
-            self.logger.info(f'Found existing genres file: {latest_genres_file}')
-            genres = self._load_genres(latest_genres_file)
-            self.logger.info(f'Loaded {len(genres)} genres from file')
+        try:
+            url = f"{self._base_url}/genres"
+            response = self._session.get(url, timeout=10)
+            if response.status_code != 200:
+                self._logger.error(f"Failed to fetch genres: HTTP {response.status_code}")
+                return None
+                
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 尝试多个选择器
+            selectors = [
+                '.genre-item',
+                '.genre-list a',
+                '.categories a',
+                '.nav-item a[href*="/genres/"]',
+                'a[href*="/genres/"]',
+                '.category a'
+            ]
+            
+            genres = []
+            for selector in selectors:
+                genre_items = soup.select(selector)
+                if genre_items:
+                    self._logger.info(f"Found {len(genre_items)} genres using selector: {selector}")
+                    for item in genre_items:
+                        link = item.select_one('a') if selector == '.genre-item' else item
+                        if not link:
+                            continue
+                            
+                        name = link.get_text(strip=True)
+                        url = link.get('href', '')
+                        
+                        # 处理 URL
+                        if url:
+                            # 如果是相对路径，添加基础 URL
+                            if not url.startswith('http'):
+                                if not url.startswith('/'):
+                                    url = f'/{url}'
+                                if not url.startswith(f'/{self._language}/'):
+                                    url = f'/{self._language}/{url.lstrip("/")}'
+                                url = f'http://123av.com{url}'
+                                
+                        count_span = item.select_one('.count') if selector == '.genre-item' else None
+                        count = int(count_span.get_text(strip=True).strip('()')) if count_span else 0
+                        
+                        if name and url:
+                            genres.append({
+                                'name': name,
+                                'url': url,
+                                'count': count
+                            })
+                    break
+                else:
+                    self._logger.debug(f"No genres found using selector: {selector}")
+                    
+            if not genres:
+                self._logger.error("No genres found with any selector")
+                self._logger.debug(f"Available classes: {[cls for tag in soup.find_all(class_=True) for cls in tag.get('class', [])][:20]}")
+                self._logger.debug(f"Page structure:\n{soup.prettify()[:1000]}")
+                
             return genres
             
-        self.logger.info('No existing genres file found, crawling genres...')
-        genres = self._fetch_genres()
-        if genres:
-            # Save genres to file with timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = os.path.join(self.genres_dir, f'genres_{timestamp}.csv')
-            
-            with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['name', 'url', 'count'])
-                writer.writeheader()
-                writer.writerows(genres)
-            
-            self.logger.info(f"Saved {len(genres)} genres to {filename}")
-            return genres
-        return []
-        
-    def _get_latest_genres_file(self):
-        """Get the latest genres file from data directory."""
-        import glob
-        
-        # 获取所有 genres 文件
-        genre_files = glob.glob(os.path.join(self.genres_dir, 'genres_*.csv'))
-        if not genre_files:
+        except Exception as e:
+            self._logger.error(f"Error fetching genres: {str(e)}")
             return None
             
-        # 按修改时间排序，返回最新的文件
-        return max(genre_files, key=os.path.getmtime)
+    def _save_genre(self, genre):
+        """Save genre to database.
         
-    def _load_genres(self, file_path):
-        """Load genres from CSV file."""
-        genres = []
-        with open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                genres.append({
-                    'name': row['name'],
-                    'url': row['url'],
-                    'count': row['count']
-                })
-        return genres
-    
+        Args:
+            genre (dict): Genre information
+            
+        Returns:
+            int: Genre ID
+        """
+        try:
+            with self._db._conn.cursor() as cur:
+                # 检查类型是否已存在
+                cur.execute("""
+                    WITH genre_check AS (
+                        SELECT g.id 
+                        FROM genres g
+                        JOIN genre_names gn ON g.id = gn.genre_id
+                        WHERE gn.name = %s AND gn.language = %s
+                    ), new_genre AS (
+                        INSERT INTO genres DEFAULT VALUES
+                        RETURNING id
+                    )
+                    SELECT COALESCE(
+                        (SELECT id FROM genre_check),
+                        (SELECT id FROM new_genre)
+                    ) as genre_id
+                """, (genre['name'], self._language))
+                genre_id = cur.fetchone()[0]
+                
+                # 插入或更新类型名称
+                cur.execute("""
+                    INSERT INTO genre_names (genre_id, language, name)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (genre_id, language) DO UPDATE 
+                    SET name = EXCLUDED.name
+                """, (genre_id, self._language, genre['name']))
+                
+                self._db._conn.commit()
+                return genre_id
+                
+        except Exception as e:
+            self._db._conn.rollback()
+            self._logger.error(f"Error saving genre {genre['name']}: {str(e)}")
+            raise
+
     def process_genre(self, genre):
         """Process a single genre's movies.
         
@@ -107,7 +193,7 @@ class GenreProcessor:
         genre_name = genre['name']
         start_page = self.progress_manager.get_genre_progress(genre_name) if self.progress_manager else 1
         
-        self.logger.info(f"Processing genre: {genre_name}, starting from page {start_page}")
+        self._logger.info(f"Processing genre: {genre_name}, starting from page {start_page}")
         
         current_page = start_page
         
@@ -130,67 +216,6 @@ class GenreProcessor:
             current_page += 1
             time.sleep(random.uniform(1, 3))  # Rate limiting
     
-    def _fetch_genres(self):
-        """Fetch all available genres from the website.
-        
-        Returns:
-            list: List of genre dictionaries
-        """
-        try:
-            response = self.session.get(f'{self.base_url}/genres', timeout=10)
-            response.encoding = 'utf-8'  # 强制使用 UTF-8 编码
-            
-            if response.status_code == 200:
-                self.logger.debug(f"URL: {self.base_url}/genres")
-                self.logger.debug(f"Response encoding: {response.encoding}")
-                self.logger.debug(f"Content-Type: {response.headers.get('content-type')}")
-                self.logger.debug(f"Response content: {response.text[:500]}")
-                
-                soup = BeautifulSoup(response.text, 'html.parser')
-                genres = []
-                
-                # 尝试多个选择器
-                selectors = [
-                    '.genre-list a',
-                    '.categories a', 
-                    '.nav-item a[href*="/genres/"]',
-                    'a[href*="/genres/"]',
-                    '.category a'
-                ]
-                
-                for selector in selectors:
-                    genre_elems = soup.select(selector)
-                    if genre_elems:
-                        self.logger.debug(f"Found {len(genre_elems)} genres using selector: {selector}")
-                        for genre_elem in genre_elems:
-                            text = genre_elem.text.strip()
-                            # 分离名称和视频数量
-                            parts = text.split('\n')
-                            name = parts[0].strip()
-                            count = parts[1].strip() if len(parts) > 1 else '0 videos'
-                            # 先移除逗号，然后去掉 'videos' 字样
-                            count = count.replace(',', '').replace(' videos', '')
-                            
-                            genres.append({
-                                'name': name,
-                                'url': genre_elem['href'],
-                                'count': count
-                            })
-                        return genres
-                    else:
-                        self.logger.debug(f"No genres found using selector: {selector}")
-                
-                # 如果所有选择器都失败，记录更多信息
-                self.logger.error("No genres found with any selector")
-                self.logger.debug(f"Available classes: {[cls for tag in soup.find_all(class_=True) for cls in tag.get('class', [])][:20]}")
-                self.logger.debug(f"Page structure:\n{soup.prettify()[:1000]}")
-                return []
-        except Exception as e:
-            self.logger.error(f"Error fetching genres: {str(e)}")
-            if hasattr(e, 'response') and hasattr(e.response, 'content'):
-                self.logger.error(f"Response content: {e.response.content[:500]}")
-        return []
-    
     def _process_genre_page(self, genre, page_num):
         """Process a single page of a genre.
         
@@ -204,7 +229,7 @@ class GenreProcessor:
         try:
             # 构建 URL
             if not genre['url'].startswith('http'):
-                url = f"{self.base_url}/{genre['url'].lstrip('/')}"
+                url = f"{self._base_url}/{genre['url'].lstrip('/')}"
             else:
                 url = genre['url']
             
@@ -214,8 +239,8 @@ class GenreProcessor:
             else:
                 url = f"{url}?page={page_num}"
                 
-            self.logger.info(f"Fetching URL: {url}")
-            response = self.session.get(url, timeout=10)
+            self._logger.info(f"Fetching URL: {url}")
+            response = self._session.get(url, timeout=10)
             response.encoding = 'utf-8'  # 强制使用 UTF-8 编码
             
             if response.status_code == 404:
@@ -240,7 +265,7 @@ class GenreProcessor:
                 
                 if not movie_elems:
                     # 如果找不到，记录HTML以便调试
-                    self.logger.error(f"No movies found on page {page_num}. HTML: {soup.prettify()[:500]}...")
+                    self._logger.error(f"No movies found on page {page_num}. HTML: {soup.prettify()[:500]}...")
                     return None
                     
                 for movie_elem in movie_elems:
@@ -280,8 +305,8 @@ class GenreProcessor:
                             final_url = url
                         else:
                             # 如果 URL 不以语言路径开头，添加语言路径
-                            if not url.startswith(f'/{self.language}/'):
-                                url = f'/{self.language}/{url.lstrip("/")}'
+                            if not url.startswith(f'/{self._language}/'):
+                                url = f'/{self._language}/{url.lstrip("/")}'
                             final_url = f'http://123av.com{url}'
                         
                         movies[movie_id] = {
@@ -293,7 +318,7 @@ class GenreProcessor:
                 return movies
                 
         except Exception as e:
-            self.logger.error(f"Error processing page {page_num} of {genre_name}: {str(e)}")
+            self._logger.error(f"Error processing page {page_num} of {genre_name}: {str(e)}")
         return {}
     
     def _save_movies(self, genre_name, movies):
@@ -320,3 +345,95 @@ class GenreProcessor:
             # 保存到新文件
             filename = os.path.join(genre_dir, f'{genre_name}_page_{next_page}.json')
             safe_save_json(filename, movies)
+
+    def process(self):
+        """Process genres."""
+        try:
+            self._logger.info("Starting to process genres")
+            response = requests.get(f"{self._base_url}/genres")
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Save last response HTML for debugging
+            debug_dir = os.path.join('debug', 'html')
+            os.makedirs(debug_dir, exist_ok=True)
+            with open(os.path.join(debug_dir, 'last_response.html'), 'w', encoding='utf-8') as f:
+                f.write(soup.prettify())
+
+            # Find all genre items
+            genres = []
+            # 获取所有文本内容并按行分割
+            lines = soup.get_text().split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # 匹配格式：Genre Name xxx videos
+                match = re.match(r'(.+?)\s+(\d+(?:,\d+)?)\s+videos?\s*$', line)
+                if match:
+                    name = match.group(1).strip()
+                    count_str = match.group(2).replace(',', '')
+                    try:
+                        count = int(count_str)
+                    except (ValueError, TypeError):
+                        continue
+
+                    # 构造URL
+                    url_name = f"dm3/genres/{name.lower().replace(' ', '-').replace('/', '-')}"
+                    
+                    genres.append({
+                        'name': name,
+                        'url': url_name,
+                        'count': count
+                    })
+
+            if not genres:
+                raise Exception("No valid genres found")
+
+            self._logger.info(f"Found {len(genres)} genres")
+            self._save_genres_to_db(genres)
+            return True
+
+        except Exception as e:
+            self._logger.error(f"Failed to process genres: {str(e)}")
+            return False
+
+    def _save_genres_to_db(self, genres):
+        """Save genres to database."""
+        try:
+            with self._db._conn.cursor() as cursor:
+                for genre in genres:
+                    # Check if genre exists
+                    cursor.execute("""
+                        WITH genre_check AS (
+                            SELECT g.id 
+                            FROM genres g
+                            JOIN genre_names gn ON g.id = gn.genre_id
+                            WHERE gn.name = %s AND gn.language = %s
+                        ), new_genre AS (
+                            INSERT INTO genres DEFAULT VALUES
+                            RETURNING id
+                        )
+                        SELECT COALESCE(
+                            (SELECT id FROM genre_check),
+                            (SELECT id FROM new_genre)
+                        ) as genre_id
+                    """, (genre['name'], self._language))
+                    genre_id = cursor.fetchone()[0]
+
+                    # Insert or update genre name
+                    cursor.execute("""
+                        INSERT INTO genre_names (genre_id, language, name)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (genre_id, language) DO UPDATE 
+                        SET name = EXCLUDED.name
+                    """, (genre_id, self._language, genre['name']))
+                    
+                self._db._conn.commit()
+                self._logger.info(f"Successfully saved {len(genres)} genres to database")
+        except Exception as e:
+            self._db._conn.rollback()
+            self._logger.error(f"Failed to save genres to database: {str(e)}")
+            raise

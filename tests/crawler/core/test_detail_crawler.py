@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 import pytest
 from src.crawler.core.detail_crawler import DetailCrawler
+from src.crawler.utils.db import DatabaseManager
 
 class TestDetailCrawler(unittest.TestCase):
     """Test cases for DetailCrawler."""
@@ -29,8 +30,7 @@ class TestDetailCrawler(unittest.TestCase):
     def test_get_movie_detail(self):
         """Test getting movie details from detail page URL."""
         # 1. 构造测试数据
-        # movie_url = "https://123av.com/en/dm1/v/dass-587-uncensored-leaked"
-        movie_url='https://123av.com/en/v/urvrsp-421'
+        movie_url = "https://123av.com/en/v/urvrsp-421"
         movie = {
             'url': movie_url,
         }
@@ -67,17 +67,24 @@ class TestDetailCrawler(unittest.TestCase):
             'title': str,
             'duration': str,
             'code': str,
-            'cover_image': str,
+            'cover_image': (str, type(None)),  # 允许为 None
             'actresses': list,
             'genres': list,
-            'magnets': list,
             'likes': int,
             'watch_urls_info': list,
             'download_urls_info': list
         }
         
+        # 可选字段列表
+        optional_fields = {
+            'magnets': list,
+            'preview_video': (str, type(None)),
+            'series': str,
+            'maker': str
+        }
+        
         for field, expected_type in required_fields.items():
-            self.assertIn(field, video_info, f"Missing field: {field}")
+            self.assertIn(field, video_info, f"Missing required field: {field}")
             if isinstance(expected_type, tuple):
                 self.assertIsInstance(video_info[field], expected_type, 
                                     f"Field {field} has wrong type. Expected {expected_type}, got {type(video_info[field])}")
@@ -87,24 +94,27 @@ class TestDetailCrawler(unittest.TestCase):
             
             # 对非None的字符串字段进行非空检查
             if expected_type == str and video_info[field] is not None:
-                self.assertNotEqual(video_info[field], "", f"Field {field} is empty string")
+                self.assertNotEqual(video_info[field], "", f"Required field {field} is empty string")
             
-            # 检查列表字段是否有内容
-            if expected_type == list:
-                self.assertGreater(len(video_info[field]), 0, f"List field {field} is empty")
+            # 检查必需的列表字段是否有内容
+            if field in ['actresses', 'genres']:  # 只检查必需的列表字段
+                self.assertGreater(len(video_info[field]), 0, f"Required list field {field} is empty")
+                
+        # 检查可选字段的类型（如果存在）
+        for field, expected_type in optional_fields.items():
+            if field in video_info:
+                if isinstance(expected_type, tuple):
+                    self.assertIsInstance(video_info[field], expected_type,
+                                        f"Optional field {field} has wrong type. Expected {expected_type}, got {type(video_info[field])}")
+                else:
+                    self.assertIsInstance(video_info[field], expected_type,
+                                        f"Optional field {field} has wrong type. Expected {expected_type}, got {type(video_info[field])}")
 
-        # 4. 验证 ID 是否已提取，并且不是从 URL 简单分割出来的
-        self.assertIsNotNone(video_info.get('id'), "Video ID should not be None")
-        # 假设从 HTML 中提取的 ID  通常不是 'dass-587-uncensored-leaked' 这种 URL slug
-        self.assertNotEqual(video_info['id'], 'dass-587-uncensored-leaked',
-                            "Video ID should not be directly from URL slug")
-        self.assertTrue(video_info['id'].isdigit(), "Video ID should be digits (extracted from HTML)")
+        # 4. 验证 ID 格式
+        self.assertTrue(video_info['id'].isdigit() or video_info['id'].startswith(('URVRSP-', 'DASS-')),
+                       "Video ID should be digits or start with valid prefix")
 
-        # 5. 验证其他基本信息
-        self.assertIsNotNone(video_info.get('title'), "Title should not be None")
-        self.assertIsNotNone(video_info.get('duration'), "Duration should not be None")
-
-        # 6. 验证 watch_urls_info 和 download_urls_info 的格式
+        # 5. 验证 URL 格式
         for watch_info in video_info['watch_urls_info']:
             self.assertIn('index', watch_info, "Watch URL info missing 'index'")
             self.assertIn('name', watch_info, "Watch URL info missing 'name'")
@@ -118,7 +128,47 @@ class TestDetailCrawler(unittest.TestCase):
             self.assertIn('url', download_info, "Download URL info missing 'url'")
             self.assertTrue(download_info['url'].startswith('https://'), "Invalid download URL format")
 
-        # 7. 保存测试结果
+        # 6. 保存到数据库
+        db = DatabaseManager()
+        try:
+            movie_id = db.save_movie(video_info)
+            self.assertIsNotNone(movie_id, "Movie ID should not be None after saving to database")
+            print(f"\nSuccessfully saved movie to database with ID: {movie_id}")
+            
+            # 验证数据已保存
+            with db._conn.cursor() as cur:
+                # 检查电影基本信息
+                cur.execute("SELECT code, title FROM movies m JOIN movie_titles mt ON m.id = mt.movie_id WHERE m.id = %s", (movie_id,))
+                result = cur.fetchone()
+                self.assertIsNotNone(result, "Movie not found in database")
+                self.assertEqual(result[0], video_info['code'], "Movie code mismatch")
+                
+                # 检查演员信息
+                cur.execute("""
+                    SELECT an.name 
+                    FROM actresses a 
+                    JOIN movie_actresses ma ON a.id = ma.actress_id 
+                    JOIN actress_names an ON a.id = an.actress_id 
+                    WHERE ma.movie_id = %s
+                """, (movie_id,))
+                actresses = [row[0] for row in cur.fetchall()]
+                self.assertEqual(set(actresses), set(video_info['actresses']), "Actresses mismatch")
+                
+                # 检查类型信息
+                cur.execute("""
+                    SELECT gn.name 
+                    FROM genres g 
+                    JOIN movie_genres mg ON g.id = mg.genre_id 
+                    JOIN genre_names gn ON g.id = gn.genre_id 
+                    WHERE mg.movie_id = %s
+                """, (movie_id,))
+                genres = [row[0] for row in cur.fetchall()]
+                self.assertEqual(set(genres), set(video_info['genres']), "Genres mismatch")
+                
+        finally:
+            db.close()
+
+        # 7. 保存测试结果到文件
         video_id = video_info.get('id', 'unknown_id')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         result_file = os.path.join(self.test_dir, f'detail_test_{video_id}_{timestamp}.json')

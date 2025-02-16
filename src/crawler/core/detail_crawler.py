@@ -12,96 +12,180 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from ..utils.http import create_session
 from ..utils.file_ops import safe_read_json, safe_save_json
+from ..utils.db import DatabaseManager
+from concurrent.futures import as_completed
+from ..utils.progress_manager import ProgressManager
 
 class DetailCrawler:
     """Crawler for fetching movie details."""
     
-    def __init__(self, clear_existing=False, threads=3, progress_manager=None, language='en'):
-        """Initialize the detail crawler.
-        
+    def __init__(self, base_url, language, threads=1):
+        """Initialize DetailCrawler.
+
         Args:
-            clear_existing (bool): Whether to clear existing data
+            base_url (str): Base URL for the website
+            language (str): Language code
             threads (int): Number of threads to use
-            progress_manager: Optional progress manager instance
-            language (str): Language code for the website
         """
-        self._clear_existing = clear_existing
+        self._base_url = base_url
+        self._language = language
         self._threads = threads
         self._logger = logging.getLogger(__name__)
-        self._progress_manager = progress_manager
-        self._language = language
-        self._base_url = f'http://123av.com/{language}'
+        self._db = DatabaseManager()
+        self._progress_manager = ProgressManager(language)
         
-        # 创建语言特定的目录
-        self._source_dir = os.path.join('genre_movie', language)
-        self._base_dir = os.path.join('movie_details', language)
-        self._failed_dir = os.path.join('failed_movies', language)
-        os.makedirs(self._base_dir, exist_ok=True)
-        os.makedirs(self._failed_dir, exist_ok=True)
-        
-        # Create session with retry mechanism and SSL handling
+        # Create session with retry mechanism
         self._session = create_session(use_proxy=True)
 
-        # 初始化重试记录
+        # Initialize retry counts
         self._retry_counts = {}
 
     def start(self):
-        """Start the detail crawling process."""
-        self._logger.info("Starting detail crawler...")
-        
-        language_dir = os.path.join('genre_movie', self._language)
-        if not os.path.exists(language_dir):
-            self._logger.warning(f"Language directory not found: {language_dir}")
-            return
+        """Start crawling movie details."""
+        try:
+            genres = self._get_genres_from_db()
+            if not genres:
+                self._logger.error("No genres available to process")
+                return False
 
-        genre_dirs = [d for d in os.listdir(language_dir)
-                      if os.path.isdir(os.path.join(language_dir, d))]
-        if not genre_dirs:
-            self._logger.info("No genre directories found to process.")
-            return
+            with ThreadPoolExecutor(max_workers=self._threads) as executor:
+                futures = []
+                for genre in genres:
+                    if not self._progress_manager.is_genre_completed(genre['name']):
+                        next_page = self._progress_manager.get_genre_progress(genre['name']) + 1
+                        future = executor.submit(
+                            self._process_genre_page,
+                            genre['name'],
+                            genre['url'],
+                            next_page
+                        )
+                        futures.append(future)
 
-        self._logger.info(f"Found {len(genre_dirs)} genre directories: {genre_dirs}")
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        self._logger.error(f"Error processing genre page: {str(e)}")
+                        continue  # Continue with other genres even if one fails
 
-        with ThreadPoolExecutor(max_workers=self._threads) as executor:
-            for genre_name in genre_dirs:
-                executor.submit(self.process_genre_movies, genre_name)
+            return True
+        except Exception as e:
+            self._logger.error(f"Error in detail crawler: {str(e)}")
+            import traceback
+            self._logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
 
-        self._logger.info("Detail crawling process started for all genres.")
+    def _get_genres_from_db(self):
+        """Get genres from database."""
+        try:
+            with self._db._conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT g.id, gn.name 
+                    FROM genres g 
+                    JOIN genre_names gn ON g.id = gn.genre_id 
+                    WHERE gn.language = %s
+                """, (self._language,))
+                genres = cursor.fetchall()
+                if not genres:
+                    self._logger.error("No genres found in database")
+                    return []
+                self._logger.info(f"Found {len(genres)} genres in database")
+                
+                # 构造genre URLs
+                return [{
+                    'id': g[0], 
+                    'name': g[1],
+                    'url': f"http://123av.com/{self._language}/dm3/genres/{g[1].lower().replace(' ', '-').replace('/', '-')}"
+                } for g in genres]
+        except Exception as e:
+            self._logger.error(f"Failed to get genres from database: {str(e)}")
+            return []
 
-
-    def process_genre_movies(self, genre_name):
-        """Process movies for a specific genre."""
-        genre_dir = os.path.join('genre_movie', self._language, genre_name)
-        if not os.path.isdir(genre_dir):
-            self._logger.error(f"Genre directory not found: {genre_dir}")
-            return
-
-        movie_files = [f for f in os.listdir(genre_dir)
-                       if f.endswith('.json') and f.startswith(f'{genre_name}_page_')]
-        if not movie_files:
-            self._logger.info(f"No movie files found in genre directory: {genre_dir}")
-            return
-
-        self._logger.info(f"Found {len(movie_files)} movie files for genre: {genre_name}")
-
-        for movie_file in movie_files:
-            file_path = os.path.join(genre_dir, movie_file)
-            movies = safe_read_json(file_path)
-            if not movies:
-                self._logger.warning(f"No movies loaded from file: {file_path}")
-                continue
-
-            self._logger.info(f"Processing {len(movies)} movies from {movie_file} for genre: {genre_name}")
-            for movie in movies.values():
-                if not movie or not movie.get('url'):
-                    self._logger.warning(f"Invalid movie data in {movie_file}: {movie}")
+    def _process_genre_page(self, genre_name, genre_url, page):
+        """Process a single genre page."""
+        try:
+            url = f"{genre_url}?page={page}"
+            self._logger.info(f"Processing {genre_name} page {page}")
+            
+            response = self._session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Save the HTML for debugging
+            debug_dir = os.path.join('debug', 'html', 'genre_pages')
+            os.makedirs(debug_dir, exist_ok=True)
+            safe_name = genre_name.replace('/', '_').replace(' ', '_')
+            with open(os.path.join(debug_dir, f'{safe_name}_page_{page}.html'), 'w', encoding='utf-8') as f:
+                f.write(soup.prettify())
+            
+            # Try different selectors for movie items
+            selectors = [
+                '.movie-box',
+                '.movie-item',
+                '.video-item',
+                '.box-item',
+                '.video-box',
+                '.video-list-item',
+                '.video-grid-item'
+            ]
+            
+            movie_elements = []
+            for selector in selectors:
+                movie_elements = soup.select(selector)
+                if movie_elements:
+                    self._logger.info(f"Found {len(movie_elements)} movies with selector: {selector}")
+                    break
+            
+            if not movie_elements:
+                # Try finding any links that look like movie links
+                movie_links = soup.find_all('a', href=re.compile(r'/v/[a-zA-Z0-9-]+'))
+                if movie_links:
+                    self._logger.info(f"Found {len(movie_links)} movie links")
+                    movie_elements = movie_links
+                else:
+                    self._logger.info(f"No more movies found for {genre_name} at page {page}")
+                    self._progress_manager.update_genre_progress(genre_name, -1)  # Mark as completed
+                    return
+            
+            movies = []
+            for element in movie_elements:
+                # Get movie URL
+                if isinstance(element, str):
+                    movie_url = element
+                else:
+                    movie_url = element.get('href')
+                
+                if not movie_url:
                     continue
-                detail = self._get_movie_detail(movie)
-                if detail:
-                    self._save_movie_data(detail, genre_name)
-                time.sleep(random.uniform(1, 3))  # Rate limiting
-            self._logger.info(f"Finished processing movies from {movie_file} for genre: {genre_name}")
-
+                
+                # Ensure URL is absolute
+                if not movie_url.startswith('http'):
+                    if not movie_url.startswith('/'):
+                        movie_url = f'/{movie_url}'
+                    movie_url = f"http://123av.com{movie_url}"
+                
+                movie_info = self._process_movie_detail(movie_url)
+                if movie_info:
+                    movies.append(movie_info)
+            
+            if movies:
+                self._save_movies_to_db(movies)
+                self._progress_manager.update_genre_progress(genre_name, page)
+                self._progress_manager.update_detail_progress(genre_name, len(movies))
+            
+            # Add delay before next request
+            time.sleep(random.uniform(1, 3))
+            
+            # Continue to next page if we found movies on this page
+            if len(movies) > 0:
+                self._process_genre_page(genre_name, genre_url, page + 1)
+            
+        except Exception as e:
+            self._logger.error(f"Error processing {genre_name} page {page}: {str(e)}")
+            import traceback
+            self._logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     def _get_video_urls(self, video_id):
         """Get video URLs from ajax endpoint.
@@ -150,8 +234,6 @@ class DetailCrawler:
         except Exception as e:
             self._logger.error(f"Error getting video URLs: {str(e)}")
             return [], []
-
-
 
     def _parse_video_info(self, soup):
         """Parse video information from the detail page.
@@ -557,148 +639,6 @@ class DetailCrawler:
             self._logger.error(f"Error extracting JSON from v-scope: {str(e)}")
             return None
 
-    def _save_movie_data(self, movie_data, genre_name):
-        """Save movie details to file.
-        
-        Args:
-            movie_data (dict): Movie details to save
-            genre_name (str): Name of the genre
-        """
-        filename = f'movie_details/{genre_name}_details.json'
-        existing_data = safe_read_json(filename) or {}
-        
-        if movie_data:
-            movie_id = movie_data['url'].split('/')[-1]
-            existing_data[movie_id] = movie_data
-            safe_save_json(filename, existing_data)
-    
-    def process_genre(self, genre):
-        """Process all movies in a genre.
-        
-        Args:
-            genre (dict): Genre information
-        """
-        try:
-            genre_name = genre['name']
-            genre_url = genre['url']
-            
-            self._logger.info(f"Starting to process genre: {genre_name}")
-            
-            # Create genre directory if not exists
-            genre_dir = os.path.join(self._base_dir, genre_name)
-            os.makedirs(genre_dir, exist_ok=True)
-            
-            # Get total pages
-            total_pages = self._get_total_pages(genre_url)
-            if not total_pages:
-                self._logger.error(f"Failed to get total pages for genre: {genre_name}")
-                return
-                
-                self._logger.info(f"Found {total_pages} pages for genre: {genre_name}")
-            
-                # Get last processed page from progress
-                start_page = self._progress_manager.get_genre_progress(genre_name)
-                self._logger.info(f"Resuming from page {start_page} for genre: {genre_name}")
-            else:
-                start_page = 1
-        
-            # Process each page
-            movies_count = 0
-            for page in range(start_page, total_pages + 1):
-                try:
-                    # Add random delay to avoid being blocked
-                    delay = random.uniform(1, 3)
-                    self._logger.debug(f"Waiting {delay:.2f}s before fetching page {page}")
-                    time.sleep(delay)
-                    
-                    self._logger.info(f"Fetching page {page}/{total_pages} for genre: {genre_name}")
-                    movies = self._fetch_genre_movies(genre_url, page)
-                    
-                    if movies:
-                        # Save to file
-                        output_file = os.path.join(genre_dir, f"{genre_name}_page_{page}.json")
-                        with open(output_file, 'w', encoding='utf-8') as f:
-                            json.dump(movies, f, ensure_ascii=False, indent=2)
-                        
-                        movies_count += len(movies)
-                        self._logger.info(f"Saved {len(movies)} movies from page {page} to {output_file} (Total: {movies_count})")
-                        
-                        # Update progress
-                        self._progress_manager.update_detail_progress(genre_name, page)
-                    else:
-                        self._logger.warning(f"No movies found on page {page} for genre: {genre_name}")
-                    
-                    # Update genre progress
-                    self._progress_manager.update_genre_progress(genre_name, page)
-                        
-                except Exception as e:
-                    self._logger.error(f"Error processing page {page} for genre {genre_name}: {str(e)}")
-                    import traceback
-                    self._logger.error(f"Traceback: {traceback.format_exc()}")
-                    # Continue with next page
-                    continue
-            
-            # Mark genre as completed
-            self._progress_manager.update_genre_progress(genre_name, total_pages, completed=True)
-            
-            self._logger.info(f"Completed processing genre: {genre_name} (Total movies: {movies_count})")
-            
-        except Exception as e:
-            self._logger.error(f"Error processing genre {genre_name}: {str(e)}")
-            import traceback
-            self._logger.error(f"Traceback: {traceback.format_exc()}")
-            raise  # Re-raise to let the executor handle it
-            
-            # 创建空的 JSON 文件
-            safe_save_json(movies_file, {})
-            
-            # 逐页爬取并追加保存
-            for page in range(1, total_pages + 1):
-                page_movies = self._fetch_genre_movies(genre['url'], page)
-                if not page_movies:
-                    self.logger.warning(f"No movies found on page {page} for genre: {genre_name}")
-                    continue
-                
-                # 读取现有数据并追加
-                movies = safe_read_json(movies_file) or {}
-                movies.update(page_movies)
-                safe_save_json(movies_file, movies)
-                
-                if self.progress_manager:
-                    self.progress_manager.update_genre_progress(genre_name, page)
-                
-                self.logger.info(f"Fetched page {page}/{total_pages} for genre {genre_name}, found {len(page_movies)} movies, total: {len(movies)}")
-                time.sleep(random.uniform(1, 3))  # Rate limiting
-            
-            # 最终检查
-            movies = safe_read_json(movies_file)
-            if not movies:
-                self.logger.warning(f"No movies found for genre: {genre_name}")
-                return
-            else:
-                self.logger.info(f"Successfully crawled {len(movies)} movies for genre: {genre_name}")
-        
-        # 读取电影列表
-        movies = safe_read_json(movies_file)
-        if not movies:
-            self.logger.warning(f"Empty movies file for genre: {genre_name}")
-            return
-            
-        movie_list = list(movies.values())
-        start_index = self._progress_manager.get_detail_progress(genre_name) if self._progress_manager else 0
-        
-        self.logger.info(f"Processing {len(movie_list[start_index:])} movies for genre: {genre_name}")
-        
-        for i, movie in enumerate(movie_list[start_index:], start=start_index):
-            details = self._get_movie_detail(movie)
-            if details:
-                self._save_movie_data(details, genre_name)
-                
-            if self._progress_manager:
-                self._progress_manager.update_detail_progress(genre_name, i + 1)
-                
-            time.sleep(random.uniform(1, 3))  # Rate limiting
-
     def _extract_m3u8_from_player(self, player_url, cover_url):
         """Extract M3U8 URL from player page.
         
@@ -731,4 +671,197 @@ class DetailCrawler:
             
         except Exception as e:
             self._logger.error(f"Error extracting m3u8 URL: {str(e)}")
+            return None
+
+    def _get_genres(self):
+        """Get list of genres from the website.
+        
+        Returns:
+            list: List of genre names
+        """
+        try:
+            url = f"{self._base_url}/genres"
+            response = self._session.get(url, timeout=10)
+            if response.status_code != 200:
+                self._logger.error(f"Failed to fetch genres: HTTP {response.status_code}")
+                return []
+                
+            soup = BeautifulSoup(response.text, 'html.parser')
+            genre_links = soup.select('.genre-item a')
+            
+            genres = []
+            for link in genre_links:
+                genre_name = link.get_text(strip=True)
+                if genre_name:
+                    genres.append(genre_name)
+                    
+            self._logger.info(f"Found {len(genres)} genres")
+            return genres
+            
+        except Exception as e:
+            self._logger.error(f"Error getting genres: {str(e)}")
+            return []
+            
+    def _get_genre_movies(self, genre_name):
+        """Get list of movies for a genre.
+        
+        Args:
+            genre_name (str): Name of the genre
+            
+        Returns:
+            list: List of movie dictionaries
+        """
+        try:
+            url = f"{self._base_url}/genres/{genre_name}"
+            response = self._session.get(url, timeout=10)
+            if response.status_code != 200:
+                self._logger.error(f"Failed to fetch movies for genre {genre_name}: HTTP {response.status_code}")
+                return []
+                
+            soup = BeautifulSoup(response.text, 'html.parser')
+            movie_items = soup.select('.movie-item')
+            
+            movies = []
+            for item in movie_items:
+                link = item.select_one('a')
+                if not link:
+                    continue
+                    
+                movie = {
+                    'url': link.get('href'),
+                    'title': link.get('title', '').strip()
+                }
+                movies.append(movie)
+                
+            self._logger.info(f"Found {len(movies)} movies for genre {genre_name}")
+            return movies
+            
+        except Exception as e:
+            self._logger.error(f"Error getting movies for genre {genre_name}: {str(e)}")
+            return []
+
+    def _save_movies_to_db(self, movies):
+        """Save movies to database.
+        
+        Args:
+            movies (list): List of movie dictionaries
+        """
+        try:
+            for movie in movies:
+                try:
+                    movie_id = self._db.save_movie(movie)
+                    if movie_id:
+                        self._logger.info(f"Successfully saved movie {movie.get('code', 'Unknown')} to database")
+                    else:
+                        self._logger.error(f"Failed to save movie {movie.get('code', 'Unknown')}")
+                except Exception as e:
+                    self._logger.error(f"Error saving movie {movie.get('code', 'Unknown')}: {str(e)}")
+                    continue
+        except Exception as e:
+            self._logger.error(f"Error in _save_movies_to_db: {str(e)}")
+            raise
+
+    def _process_movie_detail(self, movie_url):
+        """Process movie detail page.
+        
+        Args:
+            movie_url (str): URL of the movie detail page
+            
+        Returns:
+            dict: Movie information dictionary
+        """
+        try:
+            self._logger.info(f"Processing movie detail: {movie_url}")
+            
+            # 获取页面内容
+            response = requests.get(movie_url)
+            response.raise_for_status()
+            
+            # 解析页面
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 提取电影信息
+            movie_info = {
+                'url': movie_url,
+                'title': '',
+                'code': '',
+                'duration': '00:00:00',
+                'release_date': '1970-01-01',
+                'actresses': [],
+                'genres': [],
+                'maker': 'Das!',
+                'series': '',
+                'likes': 0,
+                'magnets': [],
+                'watch_urls_info': [],
+                'download_urls_info': []
+            }
+            
+            # 提取标题
+            title_elem = soup.select_one('h1')
+            if title_elem:
+                movie_info['title'] = title_elem.text.strip()
+            
+            # 提取代码
+            code_elem = soup.select_one('.movie-info-code')
+            if code_elem:
+                code_text = code_elem.text.strip()
+                code_match = re.search(r'([A-Z]+-\d+)', code_text)
+                if code_match:
+                    movie_info['code'] = code_match.group(1)
+            
+            # 提取时长
+            duration_elem = soup.select_one('.movie-info-duration')
+            if duration_elem:
+                movie_info['duration'] = duration_elem.text.strip()
+            
+            # 提取发布日期
+            date_elem = soup.select_one('.movie-info-date')
+            if date_elem:
+                movie_info['release_date'] = date_elem.text.strip()
+            
+            # 提取演员
+            actress_elems = soup.select('.movie-info-actresses a')
+            movie_info['actresses'] = [elem.text.strip() for elem in actress_elems]
+            
+            # 提取类型
+            genre_elems = soup.select('.movie-info-genres a')
+            movie_info['genres'] = [elem.text.strip() for elem in genre_elems]
+            
+            # 提取磁力链接
+            magnet_elems = soup.select('.movie-info-magnets a')
+            for elem in magnet_elems:
+                magnet_info = {
+                    'url': elem.get('href', ''),
+                    'name': elem.text.strip(),
+                    'size': elem.get('data-size', ''),
+                    'date': elem.get('data-date', '')
+                }
+                movie_info['magnets'].append(magnet_info)
+            
+            # 提取观看链接
+            watch_elems = soup.select('.movie-info-watch a')
+            for idx, elem in enumerate(watch_elems):
+                watch_info = {
+                    'index': idx,
+                    'name': elem.text.strip(),
+                    'url': elem.get('href', '')
+                }
+                movie_info['watch_urls_info'].append(watch_info)
+            
+            # 提取下载链接
+            download_elems = soup.select('.movie-info-download a')
+            for idx, elem in enumerate(download_elems):
+                download_info = {
+                    'index': idx,
+                    'name': elem.text.strip(),
+                    'url': elem.get('href', ''),
+                    'host': elem.get('data-host', '')
+                }
+                movie_info['download_urls_info'].append(download_info)
+            
+            return movie_info
+            
+        except Exception as e:
+            self._logger.error(f"Error processing movie detail {movie_url}: {str(e)}")
             return None
