@@ -1,26 +1,19 @@
-# 123AV 分类数据爬虫
+# 123AV Crawler
 
-## 项目简介
-本项目用于爬取123av.com网站的分类数据，包括分类名称、URL和视频数量等信息。
+A multi-threaded web crawler for video information with resume capability and progress tracking.
 
-## 功能特性
-- 自动处理日语编码
-- 数据保存为CSV格式
-- 支持随机延迟防止被封禁
+## Prerequisites
 
-## 环境要求
-- Python 3.7+
-- 依赖包：requests, beautifulsoup4, lxml, pandas
+- Python 3.8+
+- PostgreSQL 15
+- pip (Python package manager)
 
-## 安装依赖
+## Installation
+
+1. Clone the repository:
 ```bash
-pip install -r requirements.txt
-```
-
-## 使用方法
-1. 激活虚拟环境
-```bash
-source venv/bin/activate
+git clone <repository-url>
+cd 123av_crawler
 ```
 
 2. 运行爬虫

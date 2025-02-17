@@ -10,7 +10,7 @@ from ..utils.progress import ProgressManager
 class CrawlerManager:
     """Manager for coordinating different crawlers."""
     
-    def __init__(self, language='en', threads=1, clear_existing=False):
+    def __init__(self, language='jp', threads=1, clear_existing=False):
         """Initialize CrawlerManager.
 
         Args:
@@ -35,7 +35,7 @@ class CrawlerManager:
 
             # Process genres first
             genre_processor = GenreProcessor(self._base_url, self._language)
-            if not genre_processor.process():
+            if not genre_processor.process_genres():
                 self._logger.error("Failed to process genres")
                 return False
 

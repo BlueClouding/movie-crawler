@@ -48,6 +48,7 @@ CREATE TABLE movie_actresses (
 -- 创建类型表
 CREATE TABLE genres (
     id SERIAL PRIMARY KEY,
+    urls TEXT[] NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -119,4 +120,4 @@ CREATE INDEX idx_movies_code ON movies(code);
 CREATE INDEX idx_movies_release_date ON movies(release_date);
 CREATE INDEX idx_movie_titles_language ON movie_titles(language);
 CREATE INDEX idx_actress_names_language ON actress_names(language);
-CREATE INDEX idx_genre_names_language ON genre_names(language); 
+CREATE INDEX idx_genre_names_language ON genre_names(language);

@@ -27,7 +27,6 @@ ENV/
 
 # IDE
 .idea/
-.vscode/
 *.swp
 *.swo
 .DS_Store
@@ -37,6 +36,9 @@ genres/
 genre_movie/
 movie_details/
 failed_movies/
+debug/
+logs/
+progress/
 *.log
 *.csv
 *.json
