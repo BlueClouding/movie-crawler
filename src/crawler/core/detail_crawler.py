@@ -119,12 +119,17 @@ class DetailCrawler:
 
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # Save the HTML for debugging
-            debug_dir = os.path.join('debug', 'html', 'genre_pages')
-            os.makedirs(debug_dir, exist_ok=True)
-            safe_name = genre_name.replace('/', '_').replace(' ', '_')
-            with open(os.path.join(debug_dir, f'{safe_name}_page_{page}.html'), 'w', encoding='utf-8') as f:
-                f.write(soup.prettify())
+            match = re.search(r"lastPage:\s*(\d+)", str(soup)) #  确保 soup 是字符串类型，如果 soup 是 BeautifulSoup 对象，需要先转换为字符串
+
+            if match:
+                last_page_value = int(match.group(1))
+            else:
+                self._logger.warning(f"lastPage not found on {genre_name} page {page} at URL: {url}")
+                return  # 或者返回 None, 或者抛出异常，取决于你的逻辑
+
+            if (page >= last_page_value):
+                self._logger.info(f"Reached or exceeded last page for {genre_name}, stopping at page {page}, last_page_value: {last_page_value}")
+                return # 到达或超过最后一页，停止处理
 
             # Try different selectors for movie items
             selectors = [
@@ -793,109 +798,4 @@ class DetailCrawler:
         except Exception as e:
             self._logger.error(f"Error in _save_movies_to_db: {str(e)}")
             raise
-
-    def _process_movie_detail(self, movie_url):
-        """Process movie detail page.
-        
-        Args:
-            movie_url (str): URL of the movie detail page
-            
-        Returns:
-            dict: Movie information dictionary
-        """
-        try:
-            self._logger.info(f"Processing movie detail: {movie_url}")
-            
-            # 获取页面内容
-            response = requests.get(movie_url)
-            response.raise_for_status()
-            
-            # 解析页面
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # 提取电影信息
-            movie_info = {
-                'url': movie_url,
-                'title': '',
-                'code': '',
-                'duration': '00:00:00',
-                'release_date': '1970-01-01',
-                'actresses': [],
-                'genres': [],
-                'maker': 'Das!',
-                'series': '',
-                'likes': 0,
-                'magnets': [],
-                'watch_urls_info': [],
-                'download_urls_info': []
-            }
-            
-            # 提取标题
-            title_elem = soup.select_one('h1')
-            if title_elem:
-                movie_info['title'] = title_elem.text.strip()
-            
-            # 提取代码
-            code_elem = soup.select_one('.movie-info-code')
-            if code_elem:
-                code_text = code_elem.text.strip()
-                code_match = re.search(r'([A-Z]+-\d+)', code_text)
-                if code_match:
-                    movie_info['code'] = code_match.group(1)
-            
-            # 提取时长
-            duration_elem = soup.select_one('.movie-info-duration')
-            if duration_elem:
-                movie_info['duration'] = duration_elem.text.strip()
-            
-            # 提取发布日期
-            date_elem = soup.select_one('.movie-info-date')
-            if date_elem:
-                movie_info['release_date'] = date_elem.text.strip()
-            
-            # 提取演员
-            actress_elems = soup.select('.movie-info-actresses a')
-            movie_info['actresses'] = [elem.text.strip() for elem in actress_elems]
-            
-            # 提取类型
-            genre_elems = soup.select('.movie-info-genres a')
-            movie_info['genres'] = [elem.text.strip() for elem in genre_elems]
-            
-            # 提取磁力链接
-            magnet_elems = soup.select('.movie-info-magnets a')
-            for elem in magnet_elems:
-                magnet_info = {
-                    'url': elem.get('href', ''),
-                    'name': elem.text.strip(),
-                    'size': elem.get('data-size', ''),
-                    'date': elem.get('data-date', '')
-                }
-                movie_info['magnets'].append(magnet_info)
-            
-            # 提取观看链接
-            watch_elems = soup.select('.movie-info-watch a')
-            for idx, elem in enumerate(watch_elems):
-                watch_info = {
-                    'index': idx,
-                    'name': elem.text.strip(),
-                    'url': elem.get('href', '')
-                }
-                movie_info['watch_urls_info'].append(watch_info)
-            
-            # 提取下载链接
-            download_elems = soup.select('.movie-info-download a')
-            for idx, elem in enumerate(download_elems):
-                download_info = {
-                    'index': idx,
-                    'name': elem.text.strip(),
-                    'url': elem.get('href', ''),
-                    'host': elem.get('data-host', '')
-                }
-                movie_info['download_urls_info'].append(download_info)
-            
-            return movie_info
-            
-        except Exception as e:
-            self._logger.error(f"Error processing movie detail {movie_url}: {str(e)}")
-            return None
     
