@@ -15,6 +15,7 @@ from ..utils.file_ops import safe_read_json, safe_save_json
 from ..utils.db import DatabaseManager
 from concurrent.futures import as_completed
 from ..utils.progress_manager import ProgressManager
+from urllib.parse import urlparse
 
 class DetailCrawler:
     """Crawler for fetching movie details."""
@@ -53,13 +54,17 @@ class DetailCrawler:
                 for genre in genres:
                     if not self._progress_manager.is_genre_completed(genre['name']):
                         next_page = self._progress_manager.get_genre_progress(genre['name']) + 1
-                        future = executor.submit(
-                            self._process_genre_page,
-                            genre['name'],
-                            genre['url'],
-                            next_page
-                        )
-                        futures.append(future)
+                        if genre['urls']: # 确保 urls 列表存在且不为空
+                            for genre_url in genre['urls']: # 遍历 genre 的 urls 列表
+                                future = executor.submit(
+                                    self._process_genre_page,
+                                    genre['name'],
+                                    genre_url,  # 传递当前遍历到的 genre_url
+                                    next_page
+                                )
+                                futures.append(future)
+                        else:
+                            self._logger.warning(f"No URLs found for genre: {genre['name']}")
 
                 for future in as_completed(futures):
                     try:
@@ -80,9 +85,9 @@ class DetailCrawler:
         try:
             with self._db._conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT g.id, gn.name 
-                    FROM genres g 
-                    JOIN genre_names gn ON g.id = gn.genre_id 
+                    SELECT g.id, gn.name, g.urls  -- Select urls from genres table
+                    FROM genres g
+                    JOIN genre_names gn ON g.id = gn.genre_id
                     WHERE gn.language = %s
                 """, (self._language,))
                 genres = cursor.fetchall()
@@ -90,12 +95,12 @@ class DetailCrawler:
                     self._logger.error("No genres found in database")
                     return []
                 self._logger.info(f"Found {len(genres)} genres in database")
-                
-                # 构造genre URLs
+
+                # Construct genre info, URL is directly from DB
                 return [{
-                    'id': g[0], 
+                    'id': g[0],
                     'name': g[1],
-                    'url': f"http://123av.com/{self._language}/dm3/genres/{g[1].lower().replace(' ', '-').replace('/', '-')}"
+                    'urls': g[2]  # URLs are directly from database, assuming it's an array
                 } for g in genres]
         except Exception as e:
             self._logger.error(f"Failed to get genres from database: {str(e)}")
@@ -103,22 +108,24 @@ class DetailCrawler:
 
     def _process_genre_page(self, genre_name, genre_url, page):
         """Process a single genre page."""
+
         try:
             url = f"{genre_url}?page={page}"
+            base_url = self._base_url
             self._logger.info(f"Processing {genre_name} page {page}")
-            
+
             response = self._session.get(url, timeout=10)
             response.raise_for_status()
-            
+
             soup = BeautifulSoup(response.text, 'html.parser')
-            
+
             # Save the HTML for debugging
             debug_dir = os.path.join('debug', 'html', 'genre_pages')
             os.makedirs(debug_dir, exist_ok=True)
             safe_name = genre_name.replace('/', '_').replace(' ', '_')
             with open(os.path.join(debug_dir, f'{safe_name}_page_{page}.html'), 'w', encoding='utf-8') as f:
                 f.write(soup.prettify())
-            
+
             # Try different selectors for movie items
             selectors = [
                 '.movie-box',
@@ -129,14 +136,15 @@ class DetailCrawler:
                 '.video-list-item',
                 '.video-grid-item'
             ]
-            
+
             movie_elements = []
+
             for selector in selectors:
                 movie_elements = soup.select(selector)
                 if movie_elements:
                     self._logger.info(f"Found {len(movie_elements)} movies with selector: {selector}")
                     break
-            
+
             if not movie_elements:
                 # Try finding any links that look like movie links
                 movie_links = soup.find_all('a', href=re.compile(r'/v/[a-zA-Z0-9-]+'))
@@ -147,40 +155,46 @@ class DetailCrawler:
                     self._logger.info(f"No more movies found for {genre_name} at page {page}")
                     self._progress_manager.update_genre_progress(genre_name, -1)  # Mark as completed
                     return
-            
+
+            # Process each movie element and extract the link and title
             movies = []
+
             for element in movie_elements:
-                # Get movie URL
-                if isinstance(element, str):
-                    movie_url = element
-                else:
-                    movie_url = element.get('href')
-                
-                if not movie_url:
-                    continue
-                
-                # Ensure URL is absolute
-                if not movie_url.startswith('http'):
-                    if not movie_url.startswith('/'):
-                        movie_url = f'/{movie_url}'
-                    movie_url = f"http://123av.com{movie_url}"
-                
-                movie_info = self._process_movie_detail(movie_url)
-                if movie_info:
-                    movies.append(movie_info)
-            
+                # Extract the anchor tag for each movie
+                anchor_tag = element.find('a')
+                if anchor_tag:
+                    movie_url = anchor_tag.get('href')
+                    movie_title = anchor_tag.get('title')
+
+                    # Check if the movie URL is valid
+                    if movie_url and movie_title:
+                        # Ensure URL is absolute
+                        if not movie_url.startswith('http'):
+                            if not movie_url.startswith('/'):
+                                movie_url = f'/{movie_url}'
+                            movie_url = f"{base_url}{movie_url}"
+
+                        # Now you have the movie link and title
+                        movie_info = {
+                            'url': movie_url,
+                            'code': movie_title
+                        }
+
+                        movies.append(movie_info)
+
             if movies:
+                # Save the movie data to the database or further processing
                 self._save_movies_to_db(movies)
                 self._progress_manager.update_genre_progress(genre_name, page)
                 self._progress_manager.update_detail_progress(genre_name, len(movies))
-            
-            # Add delay before next request
+
+            # Add delay before the next request
             time.sleep(random.uniform(1, 3))
-            
+
             # Continue to next page if we found movies on this page
             if len(movies) > 0:
                 self._process_genre_page(genre_name, genre_url, page + 1)
-            
+
         except Exception as e:
             self._logger.error(f"Error processing {genre_name} page {page}: {str(e)}")
             import traceback
@@ -273,38 +287,7 @@ class DetailCrawler:
                 video = player.select_one('video')
                 if video:
                     info['preview_video'] = video.get('src')
-
-            # 提取详细信息
-            for div in soup.find_all('div'):
-                label_span = div.select_one('span:first-child')
-                if not label_span:
-                    continue
-                    
-                label = label_span.get_text(strip=True).rstrip(':').lower()
-                value_span = div.select_one('span:nth-child(2)')
-                if not value_span:
-                    continue
-
-                if label == 'code':
-                    code_text = value_span.get_text(strip=True)
-                    code_match = re.match(r'^([A-Z]+-\d+)', code_text)
-                    if code_match:
-                        info['code'] = code_match.group(1)
-                elif label == 'release date':
-                    info['release_date'] = value_span.get_text(strip=True)
-                elif label == 'runtime':
-                    info['duration'] = value_span.get_text(strip=True)
-                elif label == 'actresses':
-                    actresses = value_span.select('a')
-                    info['actresses'] = [a.get_text(strip=True) for a in actresses]
-                elif label == 'genres':
-                    genres = value_span.select('a')
-                    info['genres'] = [g.get_text(strip=True) for g in genres]
-                elif label == 'maker':
-                    maker = value_span.select_one('a')
-                    if maker:
-                        info['maker'] = maker.get_text(strip=True)
-
+            
             # 提取磁力链接
             magnets_div = soup.select('.magnet')
             for magnet in magnets_div:
@@ -427,29 +410,78 @@ class DetailCrawler:
             video_info.setdefault('code', '')
             video_info.setdefault('actresses', [])
             video_info.setdefault('genres', [])
-            video_info.setdefault('maker', 'Das!')  # 直接设置为 Das!
+            video_info.setdefault('maker', 'Das!')  # Default maker is Das!
             video_info.setdefault('series', '')
             video_info.setdefault('likes', 0)
             video_info.setdefault('magnets', [])
-            
-            # 从标题中提取演员名字作为默认演员
-            if not video_info['actresses'] and video_info['title']:
-                actress_match = re.search(r'-\s*([^-]+?)\s*$', video_info['title'])
-                if actress_match:
-                    actress_name = actress_match.group(1).strip()
+            video_info.setdefault('description', '')
+            video_info.setdefault('tags', [])
+
+            # 提取标题
+            title_tag = soup.find('h1')
+            if title_tag:
+                video_info['title'] = title_tag.get_text(strip=True)
+
+            # Extract the code
+            code_div = soup.find('span', text='コード:')
+            if code_div:
+                code_span = code_div.find_next('span')
+                if code_span:
+                    video_info['code'] = code_span.get_text(strip=True)
+
+            # 提取发布日期
+            release_date_tag = soup.find('span', text='リリース日:')
+            if release_date_tag:
+                release_date = release_date_tag.find_next('span')
+                if release_date:
+                    video_info['release_date'] = release_date.get_text(strip=True)
+
+            # 提取时长
+            duration_tag = soup.find('span', text='再生時間:')
+            if duration_tag:
+                duration = duration_tag.find_next('span')
+                if duration:
+                    video_info['duration'] = duration.get_text(strip=True)
+
+            # 提取演员
+            actress_tag = soup.find('span', text='女優:')
+            if actress_tag:
+                actress = actress_tag.find_next('span')
+                if actress:
+                    actress_name = actress.get_text(strip=True)
                     if actress_name:
                         video_info['actresses'] = [actress_name]
 
-            # 从标题中提取类型作为默认类型
-            if not video_info['genres'] and video_info['title']:
-                if '[Uncensored Leaked]' in video_info['title']:
-                    video_info['genres'] = ['Uncensored', 'Leaked']
-            
-            # Validate the final video_info
-            if not self._validate_video_info(video_info):
-                self._logger.error("Final video info validation failed")
-                return None
-                
+            # 提取类型
+            genres_tag = soup.find('span', text='ジャンル:')
+            if genres_tag:
+                genres = genres_tag.find_next('span')
+                if genres:
+                    genre_links = genres.find_all('a')
+                    video_info['genres'] = [genre.get_text(strip=True) for genre in genre_links]
+
+            # 提取制作商
+            maker_tag = soup.find('span', text='メーカー:')
+            if maker_tag:
+                maker = maker_tag.find_next('span')
+                if maker:
+                    maker_name = maker.get_text(strip=True)
+                    if maker_name:
+                        video_info['maker'] = maker_name
+
+            # 提取描述
+            description_tag = soup.find('div', class_='description')
+            if description_tag:
+                video_info['description'] = description_tag.get_text(strip=True)
+
+            # 提取tags
+            tags_div = soup.find('div', text='タグ:')
+            if tags_div:
+                tags_span = tags_div.find_next('span')
+                if tags_span:
+                    tags = [a_tag.get_text() for a_tag in tags_span.find_all('a')]
+                    video_info['tags'] = tags
+
             return video_info
             
         except Exception as e:
@@ -749,7 +781,8 @@ class DetailCrawler:
         try:
             for movie in movies:
                 try:
-                    movie_id = self._db.save_movie(movie)
+                    video_info = self._get_movie_detail(movie)
+                    movie_id = self._db.save_movie(video_info)
                     if movie_id:
                         self._logger.info(f"Successfully saved movie {movie.get('code', 'Unknown')} to database")
                     else:
@@ -865,3 +898,4 @@ class DetailCrawler:
         except Exception as e:
             self._logger.error(f"Error processing movie detail {movie_url}: {str(e)}")
             return None
+    
