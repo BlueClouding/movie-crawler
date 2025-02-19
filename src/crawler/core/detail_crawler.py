@@ -495,50 +495,6 @@ class DetailCrawler:
             self._logger.error(f"Traceback: {traceback.format_exc()}")
             return None
             
-    def _validate_video_info(self, video_info):
-        """Validate the video information dictionary.
-        
-        Args:
-            video_info (dict): Video information to validate
-            
-        Returns:
-            bool: True if valid, False otherwise
-        """
-        required_fields = {
-            'url': str,
-            'id': str,
-            'title': str,
-            'duration': str,
-            'release_date': str,
-            'code': str,
-            'actresses': list,
-            'genres': list,
-            'maker': str,
-            'series': str,
-            'likes': int,
-            'magnets': list
-        }
-        
-        try:
-            # Check all required fields exist and have correct types
-            for field, field_type in required_fields.items():
-                if field not in video_info:
-                    self._logger.error(f"Missing required field: {field}")
-                    return False
-                if not isinstance(video_info[field], field_type):
-                    self._logger.error(f"Invalid type for field {field}: expected {field_type}, got {type(video_info[field])}")
-                    return False
-            
-            # Additional validation for URL format
-            if not video_info['url'].startswith(('http://', 'https://')):
-                self._logger.error("Invalid URL format")
-                return False
-                
-            return True
-            
-        except Exception as e:
-            self._logger.error(f"Error validating video info: {str(e)}")
-            return False
 
     def _extract_movie_id(self, soup, fallback_url):
         """Extract movie ID from HTML content.
@@ -787,7 +743,8 @@ class DetailCrawler:
             for movie in movies:
                 try:
                     video_info = self._get_movie_detail(movie)
-                    movie_id = self._db.save_movie(video_info)
+                    language = self._language
+                    movie_id = self._db.save_movie(video_info, language)
                     if movie_id:
                         self._logger.info(f"Successfully saved movie {movie.get('code', 'Unknown')} to database")
                     else:

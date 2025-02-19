@@ -51,7 +51,7 @@ class DatabaseManager:
         except (psycopg2.Error, Exception):
             self._connect()
             
-    def save_movie(self, movie_data):
+    def save_movie(self, movie_data, language):
         """Save movie data to database.
         
         Args:
@@ -66,8 +66,8 @@ class DatabaseManager:
                 # 1. Insert movie basic info
                 cur.execute("""
                     INSERT INTO movies (code, duration, release_date, cover_image_url, 
-                                      preview_video_url, likes)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                                      preview_video_url, likes, original_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """, (
                     movie_data['code'],
@@ -75,7 +75,8 @@ class DatabaseManager:
                     movie_data['release_date'],
                     movie_data.get('cover_image'),
                     movie_data.get('preview_video'),
-                    movie_data.get('likes', 0)
+                    movie_data.get('likes', 0),
+                    movie_data.get('id')
                 ))
                 movie_id = cur.fetchone()[0]
                 
@@ -83,7 +84,7 @@ class DatabaseManager:
                 cur.execute("""
                     INSERT INTO movie_titles (movie_id, language, title)
                     VALUES (%s, %s, %s)
-                """, (movie_id, 'en', movie_data['title']))
+                """, (movie_id, language, movie_data['title']))
                 
                 # 3. Insert actresses
                 for actress_name in movie_data.get('actresses', []):
@@ -93,7 +94,7 @@ class DatabaseManager:
                             SELECT a.id 
                             FROM actresses a
                             JOIN actress_names an ON a.id = an.actress_id
-                            WHERE an.name = %s AND an.language = 'en'
+                            WHERE an.name = %s AND an.language = %s
                         ), new_actress AS (
                             INSERT INTO actresses DEFAULT VALUES
                             RETURNING id
@@ -102,7 +103,7 @@ class DatabaseManager:
                             (SELECT id FROM actress_check),
                             (SELECT id FROM new_actress)
                         ) as actress_id
-                    """, (actress_name,))
+                    """, (actress_name, language))
                     actress_id = cur.fetchone()[0]
                     
                     # Insert actress name if new
@@ -110,7 +111,7 @@ class DatabaseManager:
                         INSERT INTO actress_names (actress_id, language, name)
                         VALUES (%s, %s, %s)
                         ON CONFLICT (actress_id, language) DO NOTHING
-                    """, (actress_id, 'en', actress_name))
+                    """, (actress_id, language, actress_name))
                     
                     # Link actress to movie
                     cur.execute("""
@@ -127,7 +128,7 @@ class DatabaseManager:
                             SELECT g.id 
                             FROM genres g
                             JOIN genre_names gn ON g.id = gn.genre_id
-                            WHERE gn.name = %s AND gn.language = 'en'
+                            WHERE gn.name = %s AND gn.language = %s
                         ), new_genre AS (
                             INSERT INTO genres DEFAULT VALUES
                             RETURNING id
@@ -136,7 +137,7 @@ class DatabaseManager:
                             (SELECT id FROM genre_check),
                             (SELECT id FROM new_genre)
                         ) as genre_id
-                    """, (genre_name,))
+                    """, (genre_name, language))
                     genre_id = cur.fetchone()[0]
                     
                     # Insert genre name if new
@@ -144,7 +145,7 @@ class DatabaseManager:
                         INSERT INTO genre_names (genre_id, language, name)
                         VALUES (%s, %s, %s)
                         ON CONFLICT (genre_id, language) DO NOTHING
-                    """, (genre_id, 'en', genre_name))
+                    """, (genre_id, language, genre_name))
                     
                     # Link genre to movie
                     cur.execute("""
@@ -224,4 +225,4 @@ class DatabaseManager:
         """Close database connection."""
         if self._conn is not None:
             self._conn.close()
-            self._logger.info("Database connection closed") 
+            self._logger.info("Database connection closed")

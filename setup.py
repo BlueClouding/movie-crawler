@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="123av_crawler",
+    name="123_crawler",
     version="0.1.0",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
