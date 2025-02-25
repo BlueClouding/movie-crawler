@@ -115,6 +115,68 @@ CREATE TRIGGER update_movies_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- 创建爬虫进度主表
+CREATE TABLE IF NOT EXISTS crawler_progress (
+    id SERIAL PRIMARY KEY,
+    task_type VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    last_update TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 创建页面进度表
+CREATE TABLE IF NOT EXISTS pages_progress (
+    id SERIAL PRIMARY KEY,
+    crawler_progress_id INTEGER NOT NULL REFERENCES crawler_progress(id) ON DELETE CASCADE,
+    relation_id INTEGER NOT NULL,
+    page_type VARCHAR(50) NOT NULL,
+    page_number INTEGER NOT NULL,
+    total_pages INTEGER NOT NULL,
+    total_items INTEGER DEFAULT 0,
+    processed_items INTEGER DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    last_update TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(relation_id, page_number)
+);
+
+-- 创建视频处理进度表
+CREATE TABLE IF NOT EXISTS video_progress (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) NOT NULL,
+    url TEXT NOT NULL,
+    genre_id INTEGER NOT NULL,
+    page_number INTEGER NOT NULL,
+    title TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    retry_count INTEGER DEFAULT 0,
+    last_error TEXT,
+    detail_fetched BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(code, genre_id)
+);
+
+-- 为视频资源表添加更新时间触发器
+CREATE TRIGGER update_video_resources_timestamp
+    BEFORE UPDATE ON video_resources
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 为视频进度表添加更新时间触发器
+CREATE TRIGGER update_video_progress_timestamp
+    BEFORE UPDATE ON video_progress
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 创建爬虫相关索引
+CREATE INDEX idx_video_resources_code ON video_resources(code);
+CREATE INDEX idx_video_resources_genre_page ON video_resources(genre_id, page_number);
+CREATE INDEX idx_video_resources_status ON video_resources(status);
+CREATE INDEX idx_genre_pages_status ON genre_pages(status);
+CREATE INDEX idx_video_progress_status ON video_progress(status);
+
 -- 创建索引
 CREATE INDEX idx_movies_code ON movies(code);
 CREATE INDEX idx_movies_release_date ON movies(release_date);

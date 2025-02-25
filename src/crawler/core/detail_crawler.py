@@ -6,6 +6,7 @@ import json
 import time
 import random
 import ssl
+from typing import Optional
 import urllib.parse
 import re
 from bs4 import BeautifulSoup
@@ -14,8 +15,10 @@ from ..utils.http import create_session
 from ..utils.file_ops import safe_read_json, safe_save_json
 from ..utils.db import DatabaseManager
 from concurrent.futures import as_completed
-from ..utils.progress_manager import ProgressManager
+from ..utils.progress_manager import DBProgressManager
 from urllib.parse import urlparse
+from config.database import get_db
+from src.database.operations import CrawlerDB
 
 class DetailCrawler:
     """Crawler for fetching movie details."""
@@ -32,8 +35,8 @@ class DetailCrawler:
         self._language = language
         self._threads = threads
         self._logger = logging.getLogger(__name__)
-        self._db = DatabaseManager()
-        self._progress_manager = ProgressManager(language)
+        self._db = CrawlerDB(next(get_db()))
+        self._progress_manager = DBProgressManager(language)
         
         # Create session with retry mechanism
         self._session = create_session(use_proxy=True)
@@ -41,7 +44,7 @@ class DetailCrawler:
         # Initialize retry counts
         self._retry_counts = {}
 
-    def start(self):
+    async def start(self):
         """Start crawling movie details."""
         try:
             genres = self._get_genres_from_db()
@@ -49,11 +52,14 @@ class DetailCrawler:
                 self._logger.error("No genres available to process")
                 return False
 
+            # Initialize progress tracking
+            await self._progress_manager.initialize()
+
             with ThreadPoolExecutor(max_workers=self._threads) as executor:
                 futures = []
                 for genre in genres:
-                    if not self._progress_manager.is_genre_completed(genre['name']):
-                        next_page = self._progress_manager.get_genre_progress(genre['name']) + 1
+                    if not await self._progress_manager.is_genre_completed(genre['name']):
+                        next_page = await self._progress_manager.get_genre_progress(genre['name']) + 1
                         if genre['urls']: # 确保 urls 列表存在且不为空
                             for genre_url in genre['urls']: # 遍历 genre 的 urls 列表
                                 future = executor.submit(
@@ -421,6 +427,14 @@ class DetailCrawler:
             video_info.setdefault('magnets', [])
             video_info.setdefault('description', '')
             video_info.setdefault('tags', [])
+            video_info.setdefault('director', '')
+
+            # 提取导演
+            director_tag = soup.find('span', text='監督:')
+            if director_tag:
+                director = director_tag.find_next('span')
+                if director:
+                    video_info['director'] = director.get_text(strip=True)
 
             # 提取标题
             title_tag = soup.find('h1')
@@ -496,59 +510,48 @@ class DetailCrawler:
             return None
             
 
-    def _extract_movie_id(self, soup, fallback_url):
-        """Extract movie ID from HTML content.
+    def _extract_movie_id(self, soup: BeautifulSoup, fallback_url: str) -> Optional[str]:
+        """Extract movie ID from HTML content using multiple strategies.
         
         Args:
-            soup (BeautifulSoup): Parsed HTML
-            fallback_url (str): URL to extract ID from if page parsing fails
+            soup: Parsed HTML content
+            fallback_url: URL to extract ID from if page parsing fails
             
         Returns:
-            str: Movie ID or None if no valid ID found
+            Extracted movie ID or None if no valid ID found
         """
         try:
-            # 1. 从 v-scope 属性中提取
+            # Strategy 1: Extract from v-scope attribute
             video_scope = soup.select_one('#page-video')
-            if video_scope:
-                scope_attr = video_scope.get('v-scope')
-                if scope_attr:
-                    self._logger.info(f"Found v-scope attribute: {scope_attr}")
-                    # 尝试匹配 Movie({id: xxx, code: xxx}) 格式
-                    id_match = re.search(r'Movie\(\{id:\s*(\d+),\s*code:', scope_attr)
-                    if id_match:
-                        movie_id = id_match.group(1)
-                        self._logger.info(f"Extracted ID from v-scope: {movie_id}")
-                        return movie_id
+            if video_scope and (scope_attr := video_scope.get('v-scope')):
+                self._logger.info(f"Found v-scope attribute: {scope_attr}")
+                # Match Movie({id: xxx, code: xxx}) pattern
+                if (id_match := re.search(r'Movie\(\{id:\s*(\d+),\s*code:', scope_attr)):
+                    movie_id = id_match.group(1)
+                    self._logger.info(f"Extracted ID from v-scope: {movie_id}")
+                    return movie_id
 
-            # 2. 从 meta 标签提取
-            meta_movie = soup.find('meta', {'name': 'movie-id'})
-            if meta_movie and meta_movie.get('content'):
-                movie_id = meta_movie.get('content')
+            # Strategy 2: Extract from meta tag
+            if (meta_movie := soup.find('meta', {'name': 'movie-id'})) and \
+               (movie_id := meta_movie.get('content')):
                 self._logger.info(f"Extracted ID from meta tag: {movie_id}")
                 return movie_id
 
-            # 3. 从 script 标签中提取
-            scripts = soup.find_all('script')
-            for script in scripts:
-                if not script.string:
-                    continue
-                    
-                # 尝试匹配 MOVIE_ID = xxx 格式
-                if 'MOVIE_ID' in script.string:
-                    match = re.search(r'MOVIE_ID\s*=\s*[\'"]?(\d+)[\'"]?', script.string)
-                    if match:
+            # Strategy 3: Extract from script tags
+            for script in soup.find_all('script'):
+                if script.string and 'MOVIE_ID' in script.string:
+                    if (match := re.search(r'MOVIE_ID\s*=\s*[\'"]?(\d+)[\'"]?', script.string)):
                         movie_id = match.group(1)
                         self._logger.info(f"Extracted ID from MOVIE_ID: {movie_id}")
                         return movie_id
 
-            # 4. 从 URL 中提取作为最后的备选
-            code_match = re.search(r'/v/([a-zA-Z]+-\d+)', fallback_url)
-            if code_match:
+            # Strategy 4: Extract from URL as fallback
+            if (code_match := re.search(r'/v/([a-zA-Z]+-\d+)', fallback_url)):
                 movie_code = code_match.group(1)
                 self._logger.info(f"Using movie code as ID: {movie_code}")
                 return movie_code
                 
-            self._logger.error(f"Failed to extract movie ID from HTML content")
+            self._logger.error("Failed to extract movie ID from HTML content")
             return None
 
         except Exception as e:
@@ -740,6 +743,7 @@ class DetailCrawler:
             movies (list): List of movie dictionaries
         """
         try:
+            success_count = 0
             for movie in movies:
                 try:
                     video_info = self._get_movie_detail(movie)
@@ -747,12 +751,19 @@ class DetailCrawler:
                     movie_id = self._db.save_movie(video_info, language)
                     if movie_id:
                         self._logger.info(f"Successfully saved movie {movie.get('code', 'Unknown')} to database")
+                        success_count += 1
                     else:
                         self._logger.error(f"Failed to save movie {movie.get('code', 'Unknown')}")
+                        self._progress_manager.update_failed_movie(movie.get('code', 'Unknown'))
                 except Exception as e:
                     self._logger.error(f"Error saving movie {movie.get('code', 'Unknown')}: {str(e)}")
+                    self._progress_manager.update_failed_movie(movie.get('code', 'Unknown'))
                     continue
+            
+            # Update progress with successful count
+            if success_count > 0:
+                self._progress_manager.update_detail_progress('movies', success_count)
+                
         except Exception as e:
             self._logger.error(f"Error in _save_movies_to_db: {str(e)}")
             raise
-    

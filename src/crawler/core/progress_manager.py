@@ -1,106 +1,180 @@
 """Progress manager module for tracking crawler progress."""
 
-import json
-import os
-import threading
 import logging
+import threading
 from datetime import datetime
-from ..utils.file_ops import safe_read_json, safe_save_json
+from typing import Optional
+from ...database.operations import CrawlerDB, CrawlerProgress
+
+class ProgressManagerDB:
+    """Manages crawler progress using database."""
+
+    def __init__(self, language: str, crawler_db: CrawlerDB):
+        """Initialize ProgressManagerDB.
+
+        Args:
+            language (str): Language code
+            crawler_db (CrawlerDB): Database operations instance
+        """
+        self._language = language
+        self._logger = logging.getLogger(__name__)
+        self._crawler_db = crawler_db
+        self._crawler_progress: Optional[CrawlerProgress] = None
+
+    async def initialize(self):
+        """Initialize crawler progress record."""
+        self._crawler_progress = await self._crawler_db.create_crawler_progress(
+            task_type=f"crawler_{self._language}"
+        )
+
+    async def get_genre_progress(self, genre_name: str) -> int:
+        """Get the last processed page for a genre.
+
+        Args:
+            genre_name (str): Name of the genre
+
+        Returns:
+            int: Last processed page number, 0 if not started
+        """
+        if not self._crawler_progress:
+            return 0
+            
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="genre",
+            relation_id=self._crawler_progress.id
+        )
+        return page_progress.page_number if page_progress else 0
+
+    async def update_genre_progress(self, genre_name: str, page: int):
+        """Update progress for a genre.
+
+        Args:
+            genre_name (str): Name of the genre
+            page (int): Last processed page number
+        """
+        if not self._crawler_progress:
+            return
+
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="genre",
+            relation_id=self._crawler_progress.id
+        )
+        
+        if page_progress:
+            await self._crawler_db.update_pages_progress(
+                id=page_progress.id,
+                page_number=page
+            )
+        else:
+            await self._crawler_db.create_pages_progress(
+                crawler_progress_id=self._crawler_progress.id,
+                relation_id=self._crawler_progress.id,
+                page_type="genre",
+                page_number=page,
+                total_pages=-1  # Unknown total pages
+            )
+
+    async def get_detail_progress(self, genre_name: str) -> int:
+        """Get the number of processed movies for a genre.
+
+        Args:
+            genre_name (str): Name of the genre
+
+        Returns:
+            int: Number of processed movies
+        """
+        if not self._crawler_progress:
+            return 0
+
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="detail",
+            relation_id=self._crawler_progress.id
+        )
+        return page_progress.processed_items if page_progress else 0
+
+    async def update_detail_progress(self, genre_name: str, count: int):
+        """Update the number of processed movies for a genre.
+
+        Args:
+            genre_name (str): Name of the genre
+            count (int): Number of processed movies
+        """
+        if not self._crawler_progress:
+            return
+
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="detail",
+            relation_id=self._crawler_progress.id
+        )
+        
+        if page_progress:
+            await self._crawler_db.update_pages_progress(
+                id=page_progress.id,
+                processed_items=page_progress.processed_items + count
+            )
+        else:
+            await self._crawler_db.create_pages_progress(
+                crawler_progress_id=self._crawler_progress.id,
+                relation_id=self._crawler_progress.id,
+                page_type="detail",
+                page_number=0,
+                total_pages=-1,
+                processed_items=count
+            )
+
+    async def is_genre_completed(self, genre_name: str) -> bool:
+        """Check if a genre is completed.
+
+        Args:
+            genre_name (str): Name of the genre
+
+        Returns:
+            bool: True if genre is completed
+        """
+        if not self._crawler_progress:
+            return False
+
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="genre",
+            relation_id=self._crawler_progress.id
+        )
+        return page_progress.status == "completed" if page_progress else False
 
 class ProgressManager:
     """Manager for tracking progress of all crawler tasks."""
     
-    def __init__(self, language='en', progress_dir='progress'):
+    def __init__(self, language='en', crawler_db: CrawlerDB = None):
         """Initialize the progress manager.
         
         Args:
-            language (str): Language code (e.g., 'en', 'jp')
-            progress_dir (str): Directory for progress files
+            language (str): Language code (e.g., 'en', 'ja')
+            crawler_db (CrawlerDB): Database operations instance
         """
+        if not crawler_db:
+            raise ValueError("CrawlerDB instance is required")
+            
         self.language = language
-        self.progress_dir = progress_dir
-        os.makedirs(progress_dir, exist_ok=True)
-        
-        # 创建语言特定的进度文件
-        self.progress_file = os.path.join(progress_dir, f'progress_{language}.json')
+        self.crawler_db = crawler_db
+        self.db_progress_manager = ProgressManagerDB(language, crawler_db)
         self.lock = threading.Lock()
         self.logger = logging.getLogger(__name__)
-        
-        # 初始化进度数据
-        self.progress_data = {
-            'genre': {
-                'genres': {},  # Progress for each genre's pages
-                'last_update': None,
-                'completed': False
-            },
-            'detail': {
-                'genres': {},  # Progress for each genre's pages
-                'pages': {},   # Progress for each page's movies
-                'last_update': None,
-                'completed': False
-            },
-            'm3u8': {
-                'files': {},  # Progress for each file
-                'last_update': None,
-                'completed': False
-            }
-        }
-        
-        # 加载或创建进度文件
-        if os.path.exists(self.progress_file):
-            loaded_data = safe_read_json(self.progress_file)
-            if loaded_data:
-                self.progress_data = loaded_data
-        else:
-            self._save_progress(self.progress_data)
-
     
-    def _load_progress(self):
-        """Load progress data from file.
-        
-        Returns:
-            dict: Progress data
-        """
-        return safe_read_json(self.progress_file) or {}
+    async def initialize(self):
+        """Initialize the progress manager."""
+        await self.db_progress_manager.initialize()
     
-    def _save_progress(self, progress):
-        """Save progress data to file.
-        
-        Args:
-            progress (dict): Progress data to save
-        """
-        safe_save_json(self.progress_file, progress)
-    
-    def update_genre_progress(self, genre_name, page_num, completed=False):
+    async def update_genre_progress(self, genre_name: str, page: int):
         """Update genre processing progress.
         
         Args:
             genre_name (str): Name of the genre
-            page_num (int): Current page number
-            completed (bool): Whether all genres are completed
+            page (int): Current page number
         """
         with self.lock:
-            progress = self._load_progress()
-            
-            if genre_name:
-                if 'genres' not in progress['genre']:
-                    progress['genre']['genres'] = {}
-                
-                progress['genre']['genres'][genre_name] = {
-                    'last_page': page_num,
-                    'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
-            
-            if completed:
-                progress['genre']['completed'] = True
-                self.logger.info("All genres have been processed")
-            else:
-                progress['genre']['completed'] = False
-            
-            progress['genre']['last_update'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self._save_progress(progress)
+            await self.db_progress_manager.update_genre_progress(genre_name, page)
+            self.logger.info(f"Updated genre progress for {genre_name} to page {page}")
     
-    def get_genre_progress(self, genre_name):
+    async def get_genre_progress(self, genre_name: str) -> int:
         """Get progress for a genre.
         
         Args:
@@ -109,160 +183,43 @@ class ProgressManager:
         Returns:
             int: Last processed page number
         """
-        progress = self._load_progress()
-        if 'genre' in progress and 'genres' in progress['genre']:
-            genre_progress = progress['genre']['genres'].get(genre_name, {})
-            return genre_progress.get('last_page', 1)
-        return 1
+        return await self.db_progress_manager.get_genre_progress(genre_name)
     
-    def update_detail_progress(self, genre_name, page_num, movie_ids=None, completed=False):
+    async def update_detail_progress(self, genre_name: str, count: int):
         """Update detail crawler progress.
         
         Args:
             genre_name (str): Name of the genre
-            page_num (int): Current page number
-            movie_ids (list): List of movie IDs processed in this page
-            completed (bool): Whether all details are completed
+            count (int): Number of processed movies
         """
         with self.lock:
-            progress = self._load_progress()
-            
-            if genre_name:
-                if 'genres' not in progress['detail']:
-                    progress['detail']['genres'] = {}
-                
-                if genre_name not in progress['detail']['genres']:
-                    progress['detail']['genres'][genre_name] = {
-                        'pages': {},
-                        'last_update': None
-                    }
-                
-                # 更新页面进度
-                page_key = f"{genre_name}_page_{page_num}"
-                if page_num is not None:
-                    if 'pages' not in progress['detail']:
-                        progress['detail']['pages'] = {}
-                    
-                    progress['detail']['pages'][page_key] = {
-                        'processed': True,
-                        'movie_ids': movie_ids or [],
-                        'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    
-                    progress['detail']['genres'][genre_name]['pages'][str(page_num)] = {
-                        'processed': True,
-                        'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                
-                progress['detail']['genres'][genre_name]['last_update'] = \
-                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            if completed:
-                progress['detail']['completed'] = True
-                self.logger.info("All movie details have been processed")
-            else:
-                progress['detail']['completed'] = False
-            
-            progress['detail']['last_update'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self._save_progress(progress)
+            await self.db_progress_manager.update_detail_progress(genre_name, count)
+            self.logger.info(f"Updated detail progress for {genre_name}: {count} movies processed")
     
-    def get_detail_progress(self, genre_name, page_num):
+    async def get_detail_progress(self, genre_name: str) -> int:
         """Get progress for detail crawler.
         
         Args:
             genre_name (str): Name of the genre
-            page_num (int): Page number to check
             
         Returns:
-            bool: Whether the page has been processed
-            list: List of processed movie IDs for this page
+            int: Number of processed movies
         """
-        progress = self._load_progress()
-        if 'detail' not in progress or 'pages' not in progress['detail']:
-            return False, []
-        
-        page_key = f"{genre_name}_page_{page_num}"
-        page_progress = progress['detail']['pages'].get(page_key, {})
-        
-        return (
-            page_progress.get('processed', False),
-            page_progress.get('movie_ids', [])
-        )
+        return await self.db_progress_manager.get_detail_progress(genre_name)
     
-    def update_m3u8_progress(self, genre_name, movie_index, completed=False):
-        """Update M3U8 crawler progress.
-        
-        Args:
-            genre_name (str): Name of the genre
-            movie_index (int): Current movie index
-            completed (bool): Whether all M3U8s are completed
-        """
-        with self.lock:
-            progress = self._load_progress()
-            
-            if genre_name:
-                if 'files' not in progress['m3u8']:
-                    progress['m3u8']['files'] = {}
-                
-                progress['m3u8']['files'][genre_name] = {
-                    'current_index': movie_index,
-                    'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
-            
-            if completed:
-                progress['m3u8']['completed'] = True
-                self.logger.info("All M3U8 streams have been processed")
-            else:
-                progress['m3u8']['completed'] = False
-            
-            progress['m3u8']['last_update'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self._save_progress(progress)
-    
-    def get_m3u8_progress(self, genre_name):
-        """Get progress for M3U8 crawler.
+    async def is_genre_completed(self, genre_name: str) -> bool:
+        """Check if a genre is completed.
         
         Args:
             genre_name (str): Name of the genre
             
         Returns:
-            int: Last processed movie index
+            bool: True if genre is completed
         """
-        progress = self._load_progress()
-        if 'm3u8' in progress and 'files' in progress['m3u8']:
-            file_progress = progress['m3u8']['files'].get(genre_name, {})
-            return file_progress.get('current_index', 0)
-        return 0
+        return await self.db_progress_manager.is_genre_completed(genre_name)
     
-    def clear_progress(self):
+    async def clear_progress(self):
         """Clear all progress data."""
         with self.lock:
-            # 重新初始化进度数据
-            self.progress_data = {
-                'genre': {
-                    'genres': {},
-                    'last_update': None,
-                    'completed': False
-                },
-                'detail': {
-                    'genres': {},
-                    'last_update': None,
-                    'completed': False
-                },
-                'm3u8': {
-                    'files': {},
-                    'last_update': None,
-                    'completed': False
-                }
-            }
-            # 保存新的进度数据
-            self._save_progress(self.progress_data)
-
-    def clear_detail_progress(self):
-        """Clear detail crawler progress data."""
-        with self.lock:
-            progress = self._load_progress()
-            progress['detail']['genres'] = {}
-            progress['detail']['pages'] = {}
-            progress['detail']['last_update'] = None
-            progress['detail']['completed'] = False
-            self._save_progress(progress)
+            await self.db_progress_manager.clear_progress()
+            self.logger.info("Cleared all progress data")

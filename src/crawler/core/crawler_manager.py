@@ -5,7 +5,9 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from .genre_processor import GenreProcessor
 from .detail_crawler import DetailCrawler
-from ..utils.progress import ProgressManager
+from ..utils.progress_manager import DBProgressManager
+from src.database.operations import CrawlerDB,CrawlerProgress
+from config.database import get_db,get_session_from_generator
 
 class CrawlerManager:
     """Manager for coordinating different crawlers."""
@@ -24,18 +26,21 @@ class CrawlerManager:
         self._logger = logging.getLogger(__name__)
         self._base_url = f'http://123av.com/{language}'
         
-        # 创建进度管理器
-        self._progress_manager = ProgressManager(language)
+        # Initialize database and progress manager
+        self._progress_manager = DBProgressManager(language)
         
-    def start(self):
+    async def start(self):
         """Start the crawling process."""
         try:
             self._logger.info("Starting crawler manager...")
             self._logger.info("Clear existing data flag is not set.")
 
+            # Initialize progress manager
+            await self._progress_manager.initialize()
+
             # Process genres first
             genre_processor = GenreProcessor(self._base_url, self._language)
-            if not genre_processor.process_genres():
+            if not await genre_processor.process_genres(self._progress_manager):
                 self._logger.error("Failed to process genres")
                 return False
 
@@ -45,9 +50,10 @@ class CrawlerManager:
             detail_crawler = DetailCrawler(
                 base_url=self._base_url,
                 language=self._language,
-                threads=self._threads
+                threads=self._threads,
+                progress_manager=self._progress_manager
             )
-            if not detail_crawler.start():
+            if not await detail_crawler.start():
                 self._logger.error("Failed to process movie details")
                 return False
 
@@ -58,23 +64,19 @@ class CrawlerManager:
             self._logger.error(f"Error in crawler manager: {str(e)}")
             return False
             
-    def _clear_data(self):
-        """Clear existing data directories."""
-        dirs_to_clear = [
-            os.path.join('genres', self._language),
-            os.path.join('genre_movie', self._language),
-            os.path.join('movie_details', self._language),
-            os.path.join('failed_movies', self._language)
-        ]
-        
-        for dir_path in dirs_to_clear:
-            if os.path.exists(dir_path):
-                for file_name in os.listdir(dir_path):
-                    file_path = os.path.join(dir_path, file_name)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.unlink(file_path)
-                    except Exception as e:
-                        self._logger.error(f"Error deleting file {file_path}: {str(e)}")
-                        
-        self._logger.info("Cleared existing data directories")
+    async def _clear_data(self):
+        """Clear existing data from database."""
+        if not self._clear_existing:
+            return
+            
+        session = await get_session_from_generator()
+        if session is None:
+            self._logger.error("Failed to get database session")
+            return
+            
+        try:
+            crawler_db = CrawlerDB(session)
+            await crawler_db.clear_progress(self._language)
+            self._logger.info("Cleared existing progress data from database")
+        except Exception as e:
+            self._logger.error(f"Error clearing database: {str(e)}")

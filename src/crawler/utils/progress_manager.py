@@ -1,65 +1,33 @@
-import os
-import json
 import logging
-from .file_ops import safe_read_json, safe_save_json
+from typing import Optional
+from src.database.operations import CrawlerDB,CrawlerProgress
+from config.database import get_db,get_session_from_generator
 
-class ProgressManager:
-    """Manages progress of the crawler."""
+class DBProgressManager:
+    """Manages crawler progress using database."""
 
-    def __init__(self, language):
-        """Initialize ProgressManager.
-
-        Args:
-            language (str): Language code
-        """
+    async def __init__(self, language: str): # Make __init__ async
+        """Initialize CrawlerManager."""
         self._language = language
-        self._logger = logging.getLogger(__name__)
-        self._progress_dir = os.path.join('progress')
-        os.makedirs(self._progress_dir, exist_ok=True)
-        self._progress_file = os.path.join(self._progress_dir, f'progress_{language}.json')
-        self._progress = self._load_progress()
+        self._progress_manager = None
+        self._crawler_db = None
 
-    def _load_progress(self):
-        """Load progress from file."""
-        try:
-            if os.path.exists(self._progress_file):
-                progress = safe_read_json(self._progress_file)
-                if progress and isinstance(progress, dict):
-                    # Ensure required keys exist
-                    if 'genres' not in progress:
-                        progress['genres'] = {}
-                    if 'details' not in progress:
-                        progress['details'] = {}
-                    return progress
-            
-            # Create default progress structure
-            return {
-                'genres': {},  # genre_name -> last_processed_page
-                'details': {}  # genre_name -> processed_movies_count
-            }
-        except Exception as e:
-            self._logger.error(f"Failed to load progress: {str(e)}")
-            return {
-                'genres': {},
-                'details': {}
-            }
+        
+        session = await get_session_from_generator()
+        if session is None:
+            raise Exception("Failed to get database session from async generator")
 
-    def _save_progress(self):
-        """Save progress to file."""
-        try:
-            # Ensure required keys exist before saving
-            if not isinstance(self._progress, dict):
-                self._progress = {}
-            if 'genres' not in self._progress:
-                self._progress['genres'] = {}
-            if 'details' not in self._progress:
-                self._progress['details'] = {}
-            
-            safe_save_json(self._progress_file, self._progress)
-        except Exception as e:
-            self._logger.error(f"Failed to save progress: {str(e)}")
+        self._crawler_db = CrawlerDB(session) # Pass the session, not the generator
+        self._progress_manager = DBProgressManager(language, self._crawler_db)
+        await self._progress_manager.initialize()
 
-    def get_genre_progress(self, genre_name):
+    async def initialize(self):
+        """Initialize crawler progress record."""
+        self._crawler_progress = await self._crawler_db.create_crawler_progress(
+            task_type=f"crawler_{self._language}"
+        )
+
+    async def get_genre_progress(self, genre_name: str) -> int:
         """Get the last processed page for a genre.
 
         Args:
@@ -68,25 +36,45 @@ class ProgressManager:
         Returns:
             int: Last processed page number, 0 if not started
         """
-        if not isinstance(self._progress, dict) or 'genres' not in self._progress:
+        if not self._crawler_progress:
             return 0
-        return self._progress['genres'].get(genre_name, 0)
+            
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="genre",
+            relation_id=self._crawler_progress.id
+        )
+        return page_progress.page_number if page_progress else 0
 
-    def update_genre_progress(self, genre_name, page):
+    async def update_genre_progress(self, genre_name: str, page: int):
         """Update progress for a genre.
 
         Args:
             genre_name (str): Name of the genre
             page (int): Last processed page number
         """
-        if not isinstance(self._progress, dict):
-            self._progress = {}
-        if 'genres' not in self._progress:
-            self._progress['genres'] = {}
-        self._progress['genres'][genre_name] = page
-        self._save_progress()
+        if not self._crawler_progress:
+            return
 
-    def get_detail_progress(self, genre_name):
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="genre",
+            relation_id=self._crawler_progress.id
+        )
+        
+        if page_progress:
+            await self._crawler_db.update_pages_progress(
+                id=page_progress.id,
+                page_number=page
+            )
+        else:
+            await self._crawler_db.create_pages_progress(
+                crawler_progress_id=self._crawler_progress.id,
+                relation_id=self._crawler_progress.id,
+                page_type="genre",
+                page_number=page,
+                total_pages=-1  # Unknown total pages
+            )
+
+    async def get_detail_progress(self, genre_name: str) -> int:
         """Get the number of processed movies for a genre.
 
         Args:
@@ -95,26 +83,46 @@ class ProgressManager:
         Returns:
             int: Number of processed movies
         """
-        if not isinstance(self._progress, dict) or 'details' not in self._progress:
+        if not self._crawler_progress:
             return 0
-        return self._progress['details'].get(genre_name, 0)
 
-    def update_detail_progress(self, genre_name, count):
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="detail",
+            relation_id=self._crawler_progress.id
+        )
+        return page_progress.processed_items if page_progress else 0
+
+    async def update_detail_progress(self, genre_name: str, count: int):
         """Update the number of processed movies for a genre.
 
         Args:
             genre_name (str): Name of the genre
             count (int): Number of processed movies
         """
-        if not isinstance(self._progress, dict):
-            self._progress = {}
-        if 'details' not in self._progress:
-            self._progress['details'] = {}
-        current = self.get_detail_progress(genre_name)
-        self._progress['details'][genre_name] = current + count
-        self._save_progress()
+        if not self._crawler_progress:
+            return
 
-    def is_genre_completed(self, genre_name):
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="detail",
+            relation_id=self._crawler_progress.id
+        )
+        
+        if page_progress:
+            await self._crawler_db.update_pages_progress(
+                id=page_progress.id,
+                processed_items=page_progress.processed_items + count
+            )
+        else:
+            await self._crawler_db.create_pages_progress(
+                crawler_progress_id=self._crawler_progress.id,
+                relation_id=self._crawler_progress.id,
+                page_type="detail",
+                page_number=0,
+                total_pages=-1,
+                processed_items=count
+            )
+
+    async def is_genre_completed(self, genre_name: str) -> bool:
         """Check if a genre is completed.
 
         Args:
@@ -123,6 +131,11 @@ class ProgressManager:
         Returns:
             bool: True if genre is completed
         """
-        if not isinstance(self._progress, dict) or 'genres' not in self._progress:
+        if not self._crawler_progress:
             return False
-        return self._progress['genres'].get(genre_name, 0) == -1  # -1 indicates completion 
+
+        page_progress = await self._crawler_db.get_page_progress(
+            page_type="genre",
+            relation_id=self._crawler_progress.id
+        )
+        return page_progress.status == "completed" if page_progress else False

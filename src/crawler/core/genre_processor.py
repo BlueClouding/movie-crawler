@@ -1,5 +1,6 @@
 """Genre processor module for crawling movie genres."""
 
+import argparse
 import logging
 import os
 import json
@@ -15,6 +16,7 @@ from requests.adapters import HTTPAdapter
 from ..utils.http import create_session
 from ..utils.file_ops import safe_save_json, safe_read_json
 from ..utils.db import DatabaseManager
+from ..utils.progress_manager import DBProgressManager
 import re
 
 class GenreProcessor:
@@ -32,41 +34,50 @@ class GenreProcessor:
         self._logger = logging.getLogger(__name__)
         self._session = create_session(use_proxy=True)
         self._db = DatabaseManager()
+        self._progress_manager = DBProgressManager(language, self._db)
         
-    def process_genres(self):
-        """Process and save genres."""
+    async def process_genres(self, progress_manager):
+        """Process and save genres.
+        
+        Args:
+            progress_manager: DBProgressManager instance for tracking progress
+        """
         try:
-            # 获取类型列表
-            genres = self._fetch_genres()
+            # Fetch genres
+            self._logger.info("Processing genres...")
+            genres = await self._fetch_genres()
             if not genres:
                 self._logger.error("Failed to fetch genres")
-                return None
-                
-            # 保存到数据库
-            saved_genres = []
+                return False
+
+            self._logger.info(f"Found {len(genres)} genres")
+            self._logger.info("Processing genre pages...")
+            
+            # Process each genre
             for genre in genres:
                 try:
-                    genre_id = self._save_genre(genre)
-                    if genre_id:
-                        saved_genres.append({
-                            'id': genre_id,
-                            'name': genre['name'],
-                            'url': genre['url'],
-                        })
-                except Exception as e:
-                    self._logger.error(f"Error saving genre {genre['name']}: {str(e)}")
-                    continue
+                    genre_id = await self._save_genre(genre)
+                    if not genre_id:
+                        self._logger.error(f"Failed to save genre: {genre['name']}")
+                        return False
                     
-            self._logger.info(f"Saved {len(saved_genres)} genres to database")
-            return saved_genres
-            
+                    # Update progress
+                    await progress_manager.update_genre_progress(genre['name'])
+                    
+                except Exception as e:
+                    self._logger.error(f"Error processing genre {genre['name']}: {str(e)}")
+                    return False
+
+            self._logger.info("Successfully processed all genres")
+            return True
+
         except Exception as e:
             self._logger.error(f"Error processing genres: {str(e)}")
-            return None
+            return False
         finally:
             self._db.close()
             
-    def _fetch_genres(self):
+    async def _fetch_genres(self):
         """Fetch all available genres from the website.
         
         Returns:
@@ -81,7 +92,7 @@ class GenreProcessor:
                 
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 尝试多个选择器
+            # Try multiple selectors
             selectors = [
                 '.genre-item',
                 '.genre-list a',
@@ -101,14 +112,13 @@ class GenreProcessor:
                         if not link:
                             continue
                             
-                        name_element = link.select_one('.name') #  使用 CSS 选择器 .name 定位到 <div class="name">
+                        name_element = link.select_one('.name')
                         if name_element:
                             genre_name = name_element.get_text(strip=True)
                         else:
-                            genre_name = "Name not found"  #  处理找不到 name 的情况
+                            genre_name = "Name not found"
 
-                        # 提取 video count
-                        count_element = link.select_one('.text-muted') # 使用 CSS 选择器 .text-muted 定位到 <div class="text-muted">
+                        count_element = link.select_one('.text-muted')
                         if count_element:
                             count_text = count_element.get_text(strip=True)
                             count = count_text.split(" ")[0]
@@ -117,9 +127,7 @@ class GenreProcessor:
 
                         url = link.get('href', '')
                         
-                        # 处理 URL
                         if url:
-                            # 如果是相对路径，添加基础 URL
                             if not url.startswith('http'):
                                 if not url.startswith('/'):
                                     url = f'/{url}'
@@ -148,7 +156,7 @@ class GenreProcessor:
             self._logger.error(f"Error fetching genres: {str(e)}")
             return None
             
-    def _save_genre(self, genre):
+    async def _save_genre(self, genre):
         """Save genre to database.
         
         Args:
@@ -159,7 +167,6 @@ class GenreProcessor:
         """
         try:
             with self._db._conn.cursor() as cur:
-                # 检查类型是否已存在
                 cur.execute("""
                     WITH genre_check AS (
                         SELECT g.id, g.urls
@@ -184,7 +191,6 @@ class GenreProcessor:
                 genre_id = result[0]
                 existing_urls = result[1] if result[1] else []
                 
-                # 如果是已存在的类型，更新URLs数组
                 if genre['url'] not in existing_urls:
                     cur.execute("""
                         UPDATE genres
@@ -192,7 +198,6 @@ class GenreProcessor:
                         WHERE id = %s
                     """, (genre['url'], genre_id))
                 
-                # 插入或更新类型名称
                 cur.execute("""
                     INSERT INTO genre_names (genre_id, language, name)
                     VALUES (%s, %s, %s)
@@ -207,3 +212,24 @@ class GenreProcessor:
             self._db._conn.rollback()
             self._logger.error(f"Error saving genre {genre['name']}: {str(e)}")
             raise
+
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description='Movie crawler')
+    
+    parser.add_argument('--clear', 
+                       action='store_true',
+                       help='Clear existing data')
+                       
+    
+    parser.add_argument('--language',
+                       type=str,
+                       default='en',
+                       choices=['en', 'ja', 'zh'],
+                       help='Language code')
+    
+    args = parser.parse_args()
+    GenreProcessor.process_genres(args)
+
+if __name__ == '__main__':
+    main()
