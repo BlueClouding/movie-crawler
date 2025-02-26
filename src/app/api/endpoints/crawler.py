@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_services
-from app.schemas.crawler import (
+from app.models.crawler import (
     CrawlerProgressCreate, CrawlerProgressResponse, 
     PagesProgressCreate, PagesProgressResponse,
     VideoProgressCreate, VideoProgressResponse,

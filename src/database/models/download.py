@@ -1,9 +1,9 @@
 from sqlalchemy import Column, Integer, Text, ForeignKey, Date
 from sqlalchemy.orm import relationship
 
-from database.models.base import BaseModel
+from app.models.base import DBBaseModel
 
-class Magnet(BaseModel):
+class Magnet(DBBaseModel):
     __tablename__ = "magnets"
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)
@@ -18,7 +18,7 @@ class Magnet(BaseModel):
     def __repr__(self):
         return f"<Magnet {self.id}>"
 
-class DownloadUrl(BaseModel):
+class DownloadUrl(DBBaseModel):
     __tablename__ = "download_urls"
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)
@@ -33,7 +33,7 @@ class DownloadUrl(BaseModel):
     def __repr__(self):
         return f"<DownloadUrl {self.id}>"
 
-class WatchUrl(BaseModel):
+class WatchUrl(DBBaseModel):
     __tablename__ = "watch_urls"
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)

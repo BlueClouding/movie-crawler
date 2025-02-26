@@ -1,11 +1,11 @@
 from sqlalchemy import Column, Integer, Text, ForeignKey
 from sqlalchemy.orm import relationship
 
-from database.models.base import BaseModel
-from database.models.enums import SupportedLanguageEnum
-from database.models.movie import movie_actresses
+from app.models.base import DBBaseModel
+from app.models.enums import SupportedLanguageEnum
+from app.models.movie import movie_actresses
 
-class Actress(BaseModel):
+class Actress(DBBaseModel):
     __tablename__ = "actresses"
     
     # 关系
@@ -15,7 +15,7 @@ class Actress(BaseModel):
     def __repr__(self):
         return f"<Actress {self.id}>"
 
-class ActressName(BaseModel):
+class ActressName(DBBaseModel):
     __tablename__ = "actress_names"
     
     actress_id = Column(Integer, ForeignKey("actresses.id"), nullable=False)

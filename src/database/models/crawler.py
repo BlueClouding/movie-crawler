@@ -2,9 +2,9 @@ from sqlalchemy import Column, String, Integer, Text, ForeignKey, Boolean, DateT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from database.models.base import BaseModel
+from app.models.base import DBBaseModel
 
-class CrawlerProgress(BaseModel):
+class CrawlerProgress(DBBaseModel):
     __tablename__ = "crawler_progress"
     
     task_type = Column(String(50), nullable=False)
@@ -17,7 +17,7 @@ class CrawlerProgress(BaseModel):
     def __repr__(self):
         return f"<CrawlerProgress {self.task_type}: {self.status}>"
 
-class PagesProgress(BaseModel):
+class PagesProgress(DBBaseModel):
     __tablename__ = "pages_progress"
     
     crawler_progress_id = Column(Integer, ForeignKey("crawler_progress.id"), nullable=False)
@@ -36,7 +36,7 @@ class PagesProgress(BaseModel):
     def __repr__(self):
         return f"<PagesProgress {self.page_type} {self.page_number}/{self.total_pages}>"
 
-class VideoProgress(BaseModel):
+class VideoProgress(DBBaseModel):
     __tablename__ = "video_progress"
     
     code = Column(String(50), nullable=False)

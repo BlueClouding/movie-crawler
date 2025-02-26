@@ -3,11 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_services
-from app.schemas.actress import (
+from app.models.actress import (
     ActressCreate, ActressUpdate, ActressResponse, 
     ActressDetailResponse, ActressNameCreate
 )
-from app.schemas.movie import MovieResponse
+from app.models.movie import MovieResponse
 from app.models.enums import SupportedLanguage
 from app.services import ServiceFactory
 

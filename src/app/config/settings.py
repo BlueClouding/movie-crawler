@@ -1,0 +1,3 @@
+SERVER_HOST="localhost"
+SERVER_PORT=8088
+DEBUG=True

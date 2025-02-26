@@ -18,7 +18,7 @@ from concurrent.futures import as_completed
 from ..utils.progress_manager import DBProgressManager
 from urllib.parse import urlparse
 from config.database import get_db
-from src.database.operations import CrawlerDB
+from app.database.operations import CrawlerDB
 
 class DetailCrawler:
     """Crawler for fetching movie details."""

@@ -4,7 +4,7 @@ from sqlalchemy.ext.declarative import declared_attr
 
 from config.database import Base
 
-class BaseModel(Base):
+class DBBaseModel(Base):
     """所有模型的基类"""
     __abstract__ = True
     

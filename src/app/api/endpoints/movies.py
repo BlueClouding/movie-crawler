@@ -3,12 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_services
-from app.schemas.movie import (
+from app.models.movie import (
     MovieCreate, MovieUpdate, MovieResponse, 
     MovieDetailResponse, MovieTitleCreate
 )
 from app.models.enums import SupportedLanguage
 from app.services import ServiceFactory
+from app.models.download import DownloadUrlResponse, MagnetResponse, WatchUrlResponse
 
 router = APIRouter()
 

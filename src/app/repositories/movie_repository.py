@@ -2,9 +2,9 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from database.models.movie import Movie, MovieTitle
-from database.models.enums import SupportedLanguage
-from database.repositories.base_repository import BaseRepository
+from app.models.movie import Movie, MovieTitle
+from app.models.enums import SupportedLanguage
+from app.repositories.base_repository import BaseRepository
 
 class MovieRepository(BaseRepository[Movie]):
     def __init__(self):

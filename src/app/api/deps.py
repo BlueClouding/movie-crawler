@@ -1,21 +1,25 @@
-from typing import Generator
+from typing import AsyncGenerator
 from fastapi import Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import SessionLocal
+from app.config.database import async_session
 from app.services import ServiceFactory
 
-def get_db() -> Generator[Session, None, None]:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency for getting DB session
     """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    async with async_session() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
-def get_services(db: Session = Depends(get_db)) -> ServiceFactory:
+async def get_services(db: AsyncSession = Depends(get_db)) -> ServiceFactory:
     """
     Dependency for getting services factory
     """

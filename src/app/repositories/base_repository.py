@@ -2,9 +2,9 @@ from typing import Generic, TypeVar, Type, List, Optional, Any, Dict, Union
 from sqlalchemy.orm import Session
 from fastapi.encoders import jsonable_encoder
 
-from app.models.base import BaseModel
+from app.models.base import DBBaseModel
 
-ModelType = TypeVar("ModelType", bound=BaseModel)
+ModelType = TypeVar("ModelType", bound=DBBaseModel)
 
 class BaseRepository(Generic[ModelType]):
     def __init__(self, model: Type[ModelType]):

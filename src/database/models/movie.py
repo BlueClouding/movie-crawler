@@ -5,8 +5,8 @@ from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
 
 from config.database import Base
-from database.models.base import BaseModel
-from database.models.enums import SupportedLanguageEnum
+from app.models.base import DBBaseModel
+from app.models.enums import SupportedLanguageEnum
 
 
 # 电影-演员关联表
@@ -25,7 +25,7 @@ movie_genres = Table(
     Column('genre_id', Integer, ForeignKey('genres.id'), primary_key=True)
 )
 
-class Movie(BaseModel):
+class Movie(DBBaseModel):
     __tablename__ = "movies"
     
     code = Column(String(50), nullable=False, index=True)
@@ -49,7 +49,7 @@ class Movie(BaseModel):
     def __repr__(self):
         return f"<Movie {self.code}>"
 
-class MovieTitle(BaseModel):
+class MovieTitle(DBBaseModel):
     __tablename__ = "movie_titles"
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)

@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
-from models import Movie, MovieTitle, SupportedLanguage
+from app.models import Movie, MovieTitle, SupportedLanguage
 from .base_service import BaseService
 
 class MovieService(BaseService[Movie]):
