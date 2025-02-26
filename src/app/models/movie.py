@@ -4,7 +4,7 @@ from sqlalchemy import Column, DateTime, String, Integer, Date, Text, Interval, 
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from config.database import Base
 from app.models.base import DBBaseModel
 from app.models.enums import SupportedLanguageEnum
@@ -48,8 +48,7 @@ class MovieResponse(BaseModel):
     link: Optional[str] = None
     original_id: Optional[int] = None
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MovieDetailResponse(BaseModel):
@@ -70,8 +69,7 @@ class MovieDetailResponse(BaseModel):
     genres: List[dict] = []  # 或者使用专门的 GenreResponse 类
     magnets: List[dict] = []  # 或者使用专门的 MagnetResponse 类
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MovieTitleCreate(BaseModel):

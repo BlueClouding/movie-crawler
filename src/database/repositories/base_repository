@@ -1,5 +1,5 @@
 from typing import Generic, TypeVar, Type, List, Optional, Any, Dict, Union
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.encoders import jsonable_encoder
 
 from app.models.base import DBBaseModel

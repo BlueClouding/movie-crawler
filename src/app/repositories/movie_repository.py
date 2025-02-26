@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.models.movie import Movie, MovieTitle
 from app.models.enums import SupportedLanguage
@@ -10,62 +11,67 @@ class MovieRepository(BaseRepository[Movie]):
     def __init__(self):
         super().__init__(Movie)
     
-    def get_by_code(self, db: Session, *, code: str) -> Optional[Movie]:
+    async def get_by_code(self, db: AsyncSession, *, code: str) -> Optional[Movie]:
         """根据影片代码获取影片"""
-        return db.query(Movie).filter(Movie.code == code).first()
+        result = await db.execute(select(Movie).filter(Movie.code == code))
+        return result.scalars().first()
     
-    def get_with_titles(
-        self, db: Session, *, skip: int = 0, limit: int = 100, language: SupportedLanguage = None
+    async def get_with_titles(
+        self, db: AsyncSession, *, skip: int = 0, limit: int = 100, language: SupportedLanguage = None
     ) -> List[Movie]:
         """获取影片列表，包含标题"""
-        query = db.query(Movie)
+        query = select(Movie).options(selectinload(Movie.titles))
         if language:
             query = query.join(MovieTitle).filter(MovieTitle.language == language)
-        return query.order_by(Movie.release_date.desc()).offset(skip).limit(limit).all()
+        query = query.order_by(Movie.release_date.desc()).offset(skip).limit(limit)
+        result = await db.execute(query)
+        return result.scalars().all()
     
-    def search_by_title(
-        self, db: Session, *, title: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
+    async def search_by_title(
+        self, db: AsyncSession, *, title: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         """根据标题搜索影片"""
-        query = db.query(Movie).join(MovieTitle)
+        query = select(Movie).join(MovieTitle)
         
         if language:
             query = query.filter(MovieTitle.language == language)
         
         query = query.filter(MovieTitle.title.ilike(f"%{title}%"))
-        return query.order_by(Movie.release_date.desc()).offset(skip).limit(limit).all()
+        query = query.order_by(Movie.release_date.desc()).offset(skip).limit(limit)
+        result = await db.execute(query)
+        return result.scalars().all()
     
-    def get_by_actress(
-        self, db: Session, *, actress_id: int, skip: int = 0, limit: int = 100
+    async def get_by_actress(
+        self, db: AsyncSession, *, actress_id: int, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         """获取演员的所有影片"""
-        return (
-            db.query(Movie)
-            .join(Movie.actresses)
+        query = (
+            select(Movie)
             .filter(Movie.actresses.any(id=actress_id))
             .order_by(Movie.release_date.desc())
             .offset(skip)
             .limit(limit)
-            .all()
         )
+        result = await db.execute(query)
+        return result.scalars().all()
     
-    def get_by_genre(
-        self, db: Session, *, genre_id: int, skip: int = 0, limit: int = 100
+    async def get_by_genre(
+        self, db: AsyncSession, *, genre_id: int, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         """获取特定类型的所有影片"""
-        return (
-            db.query(Movie)
-            .join(Movie.genres)
+        query = (
+            select(Movie)
             .filter(Movie.genres.any(id=genre_id))
             .order_by(Movie.release_date.desc())
             .offset(skip)
             .limit(limit)
-            .all()
         )
+        result = await db.execute(query)
+        return result.scalars().all()
     
-    def create_with_relations(
+    async def create_with_relations(
         self, 
-        db: Session, 
+        db: AsyncSession, 
         *, 
         movie_data: Dict[str, Any],
         titles: List[Dict[str, Any]] = None,
@@ -76,7 +82,7 @@ class MovieRepository(BaseRepository[Movie]):
         # 创建影片
         db_movie = Movie(**movie_data)
         db.add(db_movie)
-        db.flush()  # 获取ID但不提交
+        await db.flush()  # 获取ID但不提交
         
         # 添加标题
         if titles:
@@ -87,15 +93,17 @@ class MovieRepository(BaseRepository[Movie]):
         # 添加演员关联
         if actress_ids:
             from database.models.actress import Actress
-            actresses = db.query(Actress).filter(Actress.id.in_(actress_ids)).all()
+            result = await db.execute(select(Actress).filter(Actress.id.in_(actress_ids)))
+            actresses = result.scalars().all()
             db_movie.actresses = actresses
         
         # 添加类型关联
         if genre_ids:
             from database.models.genre import Genre
-            genres = db.query(Genre).filter(Genre.id.in_(genre_ids)).all()
+            result = await db.execute(select(Genre).filter(Genre.id.in_(genre_ids)))
+            genres = result.scalars().all()
             db_movie.genres = genres
         
-        db.commit()
-        db.refresh(db_movie)
+        await db.commit()
+        await db.refresh(db_movie)
         return db_movie

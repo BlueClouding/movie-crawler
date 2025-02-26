@@ -1,10 +1,10 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_services
 from app.models.genre import (
-    GenreCreate, GenreUpdate, GenreResponse, 
+    GenreCreate, GenreUpdate, GenreResponse,
     GenreDetailResponse, GenreNameCreate
 )
 from app.models.movie import MovieResponse
@@ -14,7 +14,7 @@ from app.services import ServiceFactory
 router = APIRouter()
 
 @router.get("/", response_model=List[GenreResponse])
-def get_genres(
+async def get_genres( # Added async
     skip: int = 0,
     limit: int = 100,
     services: ServiceFactory = Depends(get_services)
@@ -22,27 +22,27 @@ def get_genres(
     """
     Retrieve genres.
     """
-    return services.genre_service.get_all(skip=skip, limit=limit)
+    return await services.genre_service.get_all(skip=skip, limit=limit) # Added await
 
 @router.post("/", response_model=GenreResponse)
-def create_genre(
+async def create_genre( # Added async
     genre_in: GenreCreate,
     services: ServiceFactory = Depends(get_services)
 ):
     """
     Create new genre.
     """
-    return services.genre_service.create(genre_in.dict())
+    return await services.genre_service.create(genre_in.dict()) # Added await
 
 @router.get("/{genre_id}", response_model=GenreDetailResponse)
-def get_genre(
+async def get_genre( # Added async
     genre_id: int = Path(..., title="The ID of the genre to get"),
     services: ServiceFactory = Depends(get_services)
 ):
     """
     Get genre by ID.
     """
-    genre = services.genre_service.get_by_id(genre_id)
+    genre = await services.genre_service.get_by_id(genre_id) # Added await
     if not genre:
         raise HTTPException(
             status_code=404,
@@ -51,7 +51,7 @@ def get_genre(
     return genre
 
 @router.put("/{genre_id}", response_model=GenreResponse)
-def update_genre(
+async def update_genre( # Added async
     genre_in: GenreUpdate,
     genre_id: int = Path(..., title="The ID of the genre to update"),
     services: ServiceFactory = Depends(get_services)
@@ -59,32 +59,32 @@ def update_genre(
     """
     Update genre.
     """
-    genre = services.genre_service.get_by_id(genre_id)
+    genre = await services.genre_service.get_by_id(genre_id) # Added await
     if not genre:
         raise HTTPException(
             status_code=404,
             detail="Genre not found"
         )
-    return services.genre_service.update(genre_id, genre_in.dict(exclude_unset=True))
+    return await services.genre_service.update(genre_id, genre_in.dict(exclude_unset=True)) # Added await
 
 @router.delete("/{genre_id}", response_model=bool)
-def delete_genre(
+async def delete_genre( # Added async
     genre_id: int = Path(..., title="The ID of the genre to delete"),
     services: ServiceFactory = Depends(get_services)
 ):
     """
     Delete genre.
     """
-    genre = services.genre_service.get_by_id(genre_id)
+    genre = await services.genre_service.get_by_id(genre_id) # Added await
     if not genre:
         raise HTTPException(
             status_code=404,
             detail="Genre not found"
         )
-    return services.genre_service.delete(genre_id)
+    return await services.genre_service.delete(genre_id) # Added await
 
 @router.post("/{genre_id}/names", response_model=GenreDetailResponse)
-def add_genre_name(
+async def add_genre_name( # Added async
     name_in: GenreNameCreate,
     genre_id: int = Path(..., title="The ID of the genre"),
     services: ServiceFactory = Depends(get_services)
@@ -92,23 +92,23 @@ def add_genre_name(
     """
     Add a name to a genre.
     """
-    genre = services.genre_service.get_by_id(genre_id)
+    genre = await services.genre_service.get_by_id(genre_id) # Added await
     if not genre:
         raise HTTPException(
             status_code=404,
             detail="Genre not found"
         )
-    
-    services.genre_service.add_name(
+
+    await services.genre_service.add_name( # Added await
         genre_id=genre_id,
         name=name_in.name,
         language=name_in.language
     )
-    
-    return services.genre_service.get_by_id(genre_id)
+
+    return await services.genre_service.get_by_id(genre_id) # Added await
 
 @router.get("/search/", response_model=List[GenreResponse])
-def search_genres(
+async def search_genres( # Added async
     name: str = Query(..., min_length=1),
     language: Optional[SupportedLanguage] = None,
     skip: int = 0,
@@ -118,7 +118,7 @@ def search_genres(
     """
     Search genres by name.
     """
-    return services.genre_service.search_by_name(
+    return await services.genre_service.search_by_name( # Added await
         name=name,
         language=language,
         skip=skip,
@@ -126,7 +126,7 @@ def search_genres(
     )
 
 @router.get("/{genre_id}/movies", response_model=List[MovieResponse])
-def get_genre_movies(
+async def get_genre_movies( # Added async
     genre_id: int = Path(..., title="The ID of the genre"),
     skip: int = 0,
     limit: int = 20,
@@ -135,13 +135,13 @@ def get_genre_movies(
     """
     Get all movies for a genre.
     """
-    genre = services.genre_service.get_by_id(genre_id)
+    genre = await services.genre_service.get_by_id(genre_id) # Added await
     if not genre:
         raise HTTPException(
             status_code=404,
             detail="Genre not found"
         )
-    return services.genre_service.get_movies_by_genre(
+    return await services.genre_service.get_movies_by_genre( # Added await
         genre_id=genre_id,
         skip=skip,
         limit=limit

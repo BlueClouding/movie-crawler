@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Column, Integer, Text, ForeignKey, Date
 from sqlalchemy.orm import relationship
 
@@ -57,8 +57,7 @@ class DownloadUrlResponse(BaseModel):
     source: Optional[str] = None
     created_at: datetime
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class WatchUrlResponse(BaseModel):
     id: int
@@ -67,9 +66,8 @@ class WatchUrlResponse(BaseModel):
     source: Optional[str] = None
     created_at: datetime
     
-    class Config:
-        orm_mode = True
-
+    model_config = ConfigDict(from_attributes=True)
+    
 class MagnetResponse(BaseModel):
     id: int
     movie_id: int
@@ -79,5 +77,4 @@ class MagnetResponse(BaseModel):
     share_date: Optional[datetime] = None
     created_at: datetime
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

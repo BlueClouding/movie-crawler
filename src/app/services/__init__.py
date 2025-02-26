@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from .movie_service import MovieService
 from .actress_service import ActressService
 from .genre_service import GenreService
@@ -10,7 +10,7 @@ from .crawler_service import CrawlerProgressService, PagesProgressService, Video
 class ServiceFactory:
     """服务工厂类，用于创建和管理所有服务实例"""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
         self._movie_service = None
         self._actress_service = None
