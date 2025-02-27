@@ -40,8 +40,8 @@ class MovieResponse(BaseModel):
     
     id: int
     code: str
-    duration: timedelta
-    release_date: date
+    duration: Optional[str] = None
+    release_date: Optional[str] = None
     cover_image_url: Optional[str] = None
     preview_video_url: Optional[str] = None
     likes: int

@@ -15,15 +15,23 @@ class MovieService(BaseService[Movie]):
         logging.debug(f"计算结果: {result}")
         return result.scalar_one_or_none() # Use scalar_one_or_none (async equivalent of first())
 
-    async def search_by_title(self, title: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 20) -> List[Movie]:
-        query = select(Movie).join(MovieTitle) # Use select and join
+    async def search_by_title(
+        self,
+        title: str,
+        language: Optional[SupportedLanguage] = None,  # 参数类型为枚举成员
+        skip: int = 0,
+        limit: int = 20
+    ) -> List[Movie]:
+        query = select(Movie).join(MovieTitle)
+        query = query.where(MovieTitle.title.ilike(f"%{title}%"))
 
         if language:
-            query = query.where(MovieTitle.language == language) # Use where instead of filter
+            # 直接使用枚举成员，SQLAlchemy 会自动转换为对应的值（如 'ja'）
+            query = query.where(MovieTitle.language == language)
 
-        query = query.where(MovieTitle.title.ilike(f"%{title}%")) # Use where instead of filter
-        result = await self.db.execute(query.offset(skip).limit(limit)) # Use session.execute() and await
-        return result.scalars().all() # Use .scalars().all() for async results
+        query = query.offset(skip).limit(limit)
+        result = await self.db.execute(query)
+        return result.scalars().all()
 
     async def get_recent_releases(self, days: int = 30, skip: int = 0, limit: int = 20) -> List[Movie]:
         cutoff_date = date.today() - timedelta(days=days)

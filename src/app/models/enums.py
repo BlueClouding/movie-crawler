@@ -10,8 +10,9 @@ class SupportedLanguage(str, enum.Enum):
 SupportedLanguageEnum = Enum(
     SupportedLanguage,
     name="supported_language",
-    create_constraint=False,  # 不创建约束，因为数据库中已经有了
-    native_enum=True
+    create_constraint=False,
+    native_enum=True,
+    values_callable=lambda enum: [member.value for member in enum]  # 关键点！
 )
 
 class CrawlerStatus(str, enum.Enum):
