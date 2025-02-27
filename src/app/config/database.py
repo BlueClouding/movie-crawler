@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
-DATABASE_URL = "postgresql+asyncpg://dqy@localhost:5432/movie_crawler"
+DATABASE_URL = "postgresql+asyncpg://postgres@localhost:5432/movie_crawler"
 
 engine = create_async_engine(
     DATABASE_URL,

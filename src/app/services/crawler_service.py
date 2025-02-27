@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from models import CrawlerProgress, PagesProgress, VideoProgress
+from app.models import CrawlerProgress, PagesProgress, VideoProgress
 from .base_service import BaseService
 
 class CrawlerProgressService(BaseService[CrawlerProgress]):

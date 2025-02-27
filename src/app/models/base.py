@@ -2,7 +2,7 @@ from datetime import datetime
 from sqlalchemy import Column, Integer, DateTime, func
 from sqlalchemy.ext.declarative import declared_attr
 
-from config.database import Base
+from app.config.database import Base
 
 class DBBaseModel(Base):
     """所有模型的基类"""

@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from sqlalchemy import select, asc # Import select and asc
-from models import WatchUrl, Movie
+from app.models import WatchUrl, Movie
 from .base_service import BaseService
 
 class WatchUrlService(BaseService[WatchUrl]):

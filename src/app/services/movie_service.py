@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
 from sqlalchemy import select, desc # Import select and desc for async queries
@@ -11,6 +12,7 @@ class MovieService(BaseService[Movie]):
 
     async def get_by_code(self, code: str) -> Optional[Movie]:
         result = await self.db.execute(select(Movie).where(Movie.code == code)) # Use session.execute() and select
+        logging.debug(f"计算结果: {result}")
         return result.scalar_one_or_none() # Use scalar_one_or_none (async equivalent of first())
 
     async def search_by_title(self, title: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 20) -> List[Movie]:

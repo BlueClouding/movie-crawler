@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from sqlalchemy import select # Import select for async queries
-from models import Magnet, Movie
+from app.models import Magnet, Movie
 from .base_service import BaseService
 
 class MagnetService(BaseService[Magnet]):

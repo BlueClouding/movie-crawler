@@ -5,7 +5,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
 from pydantic import BaseModel, ConfigDict
-from config.database import Base
+from app.config.database import Base
 from app.models.base import DBBaseModel
 from app.models.enums import SupportedLanguageEnum
 
@@ -26,7 +26,7 @@ class MovieUpdate(BaseModel):
     __allow_unmapped__ = True
     
     code: Optional[str] = None
-    duration: Optional[timedelta] = None
+    duration: Optional[str] = None
     release_date: Optional[date] = None
     cover_image_url: Optional[str] = None
     preview_video_url: Optional[str] = None
@@ -51,26 +51,50 @@ class MovieResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class MovieDetailResponse(BaseModel):
-    __allow_unmapped__ = True
+class MovieTitleResponse(BaseModel):
+    movie_id: int
+    language: str
+    title: str
+    id: int
     
+    model_config = ConfigDict(from_attributes=True)
+
+class ActressResponse(BaseModel):
+    id: int
+    # 其他需要的字段
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class GenreResponse(BaseModel):
+    id: int
+    urls: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class MagnetResponse(BaseModel):
+    movie_id: int
+    url: str
+    name: Optional[str] = None
+    size: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class MovieDetailResponse(BaseModel):
     id: int
     code: str
-    duration: timedelta
-    release_date: date
+    duration: str
+    release_date: str
     cover_image_url: Optional[str] = None
     preview_video_url: Optional[str] = None
     likes: int
     link: Optional[str] = None
     original_id: Optional[int] = None
-    # 详细信息可能包含关联数据
-    titles: List[dict] = []  # 或者使用专门的 MovieTitleResponse 类
-    actresses: List[dict] = []  # 或者使用专门的 ActressResponse 类
-    genres: List[dict] = []  # 或者使用专门的 GenreResponse 类
-    magnets: List[dict] = []  # 或者使用专门的 MagnetResponse 类
+    # titles: List[MovieTitleResponse] = []
+    # actresses: List[ActressResponse] = []
+    # genres: List[GenreResponse] = []
+    # magnets: List[MagnetResponse] = []
     
     model_config = ConfigDict(from_attributes=True)
-
 
 class MovieTitleCreate(BaseModel):
     __allow_unmapped__ = True
@@ -99,8 +123,8 @@ class Movie(DBBaseModel):
     __tablename__ = "movies"
     
     code = Column(String(50), nullable=False, index=True)
-    duration = Column(Interval, nullable=False)
-    release_date = Column(Date, nullable=False)
+    duration = Column(String(50), nullable=False)
+    release_date = Column(String(50), nullable=False)
     cover_image_url = Column(Text)
     preview_video_url = Column(Text)
     likes = Column(Integer, default=0)
