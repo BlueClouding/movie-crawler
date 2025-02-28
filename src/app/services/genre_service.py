@@ -1,7 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
-from sqlalchemy import select  # Import select for async queries
-from app.models import Genre, GenreName, SupportedLanguage, Movie
+from sqlalchemy import select
+
+from db.entity.enums import SupportedLanguage
+from db.entity.genre import Genre, GenreName
+from db.entity.movie import Movie  # Import select for async queries
 from .base_service import BaseService
 
 class GenreService(BaseService[Genre]):

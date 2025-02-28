@@ -5,7 +5,9 @@ from sqlalchemy import Column, String, Integer, Text, ForeignKey, Boolean, DateT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.models.base import DBBaseModel
+from db.entity.base import DBBaseModel
+
+
 
 
 class CrawlerProgress(DBBaseModel):

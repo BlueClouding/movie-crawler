@@ -4,7 +4,8 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.future import select
 from fastapi.encoders import jsonable_encoder
 
-from app.models.base import DBBaseModel
+from db.entity.base import DBBaseModel
+
 
 ModelType = TypeVar("ModelType", bound=DBBaseModel)
 

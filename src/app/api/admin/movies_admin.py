@@ -1,11 +1,10 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Path
 from app.api.deps import get_services
-from app.models.movie import (
-    MovieCreate, MovieUpdate, MovieResponse,
-    MovieDetailResponse, MovieTitleCreate
-)
 from app.services import ServiceFactory
+from models.request.movie_info_request import MovieTitleCreate
+from models.request.movie_request import MovieCreate, MovieUpdate
+from models.response.movie_response import MovieDetailResponse, MovieResponse
 
 router = APIRouter()
 

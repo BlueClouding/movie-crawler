@@ -3,9 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.models.movie import Movie, MovieTitle
-from app.models.enums import SupportedLanguage
 from app.repositories.base_repository import BaseRepository
+from db.entity.enums import SupportedLanguage
+from db.entity.movie import Movie, MovieTitle
+from db.entity.movie_actress import MovieActress
+from db.entity.movie_genres import MovieGenre
 
 class MovieRepository(BaseRepository[Movie]):
     def __init__(self):
@@ -45,9 +47,13 @@ class MovieRepository(BaseRepository[Movie]):
         self, db: AsyncSession, *, actress_id: int, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         """获取演员的所有影片"""
+        # 使用MovieActress类而不是关系属性
+        from db.entity.movie_actress import MovieActress
+        
         query = (
             select(Movie)
-            .filter(Movie.actresses.any(id=actress_id))
+            .join(MovieActress, Movie.id == MovieActress.movie_id)
+            .filter(MovieActress.actress_id == actress_id)
             .order_by(Movie.release_date.desc())
             .offset(skip)
             .limit(limit)
@@ -59,9 +65,12 @@ class MovieRepository(BaseRepository[Movie]):
         self, db: AsyncSession, *, genre_id: int, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         """获取特定类型的所有影片"""
+        # 使用MovieGenre类而不是关系属性
+        
         query = (
             select(Movie)
-            .filter(Movie.genres.any(id=genre_id))
+            .join(MovieGenre, Movie.id == MovieGenre.movie_id)
+            .filter(MovieGenre.genre_id == genre_id)
             .order_by(Movie.release_date.desc())
             .offset(skip)
             .limit(limit)
@@ -92,17 +101,13 @@ class MovieRepository(BaseRepository[Movie]):
         
         # 添加演员关联
         if actress_ids:
-            from database.models.actress import Actress
-            result = await db.execute(select(Actress).filter(Actress.id.in_(actress_ids)))
-            actresses = result.scalars().all()
-            db_movie.actresses = actresses
+            for actress_id in actress_ids:
+                db.add(MovieActress(movie_id=db_movie.id, actress_id=actress_id))
         
         # 添加类型关联
         if genre_ids:
-            from database.models.genre import Genre
-            result = await db.execute(select(Genre).filter(Genre.id.in_(genre_ids)))
-            genres = result.scalars().all()
-            db_movie.genres = genres
+            for genre_id in genre_ids:
+                db.add(MovieGenre(movie_id=db_movie.id, genre_id=genre_id))
         
         await db.commit()
         await db.refresh(db_movie)

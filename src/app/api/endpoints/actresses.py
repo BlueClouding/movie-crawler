@@ -1,15 +1,12 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.api.deps import get_services
-from app.models.actress import (
-    ActressCreate, ActressUpdate, ActressResponse,
-    ActressDetailResponse, ActressNameCreate
-)
-from app.models.movie import MovieResponse
-from app.models.enums import SupportedLanguage
 from app.services import ServiceFactory
+from db.entity.enums import SupportedLanguage
+from models.request.actress_request import ActressCreate, ActressNameCreate, ActressUpdate
+from models.response.actress_response import ActressDetailResponse, ActressResponse
+from models.response.movie_response import MovieResponse
 
 router = APIRouter()
 

@@ -1,12 +1,11 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
-from sqlalchemy.orm import joinedload
 
-from app.models.genre import Genre, GenreName
-from app.models.enums import SupportedLanguage
+from db.entity.enums import SupportedLanguage
+from db.entity.genre import Genre, GenreName
 from app.repositories.base_repository import BaseRepository
-from app.models.movie import movie_genres
+from db.entity.movie_genres import MovieGenre
 
 class GenreRepository(BaseRepository[Genre]):
     def __init__(self):
@@ -61,13 +60,15 @@ class GenreRepository(BaseRepository[Genre]):
         self, db: AsyncSession, *, skip: int = 0, limit: int = 100
     ) -> List[Genre]:
         """获取最受欢迎的类型（根据影片数量）"""
+        # 在方法内部导入以避免循环引用
+        
         # 创建子查询获取类型ID和影片数量
         subquery = (
             select(
-                movie_genres.c.genre_id,
-                func.count(movie_genres.c.movie_id).label("movie_count")
+                MovieGenre.genre_id,
+                func.count(MovieGenre.movie_id).label("movie_count")
             )
-            .group_by(movie_genres.c.genre_id)
+            .group_by(MovieGenre.genre_id)
             .subquery()
         )
         

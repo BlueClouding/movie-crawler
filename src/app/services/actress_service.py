@@ -1,10 +1,11 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.actress import Actress, ActressName
-from app.models.movie import Movie
-from app.models.enums import SupportedLanguage
 from app.repositories.actress_repository import ActressRepository
 from app.repositories.movie_repository import MovieRepository
+from crawler.core.actress_processor import Actress
+from db.entity.actress import ActressName
+from db.entity.enums import SupportedLanguage
+from db.entity.movie import Movie
 from .base_service import BaseService
 
 class ActressService(BaseService[Actress]):

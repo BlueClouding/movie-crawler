@@ -1,10 +1,10 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from app.api.deps import get_services
-from app.models.movie import MovieResponse, MovieDetailResponse
-from app.models.enums import SupportedLanguage
 from app.services import ServiceFactory
-from app.models.download import DownloadUrlResponse, MagnetResponse, WatchUrlResponse
+from db.entity.download import DownloadUrlResponse, MagnetResponse, WatchUrlResponse
+from db.entity.enums import SupportedLanguage
+from models.response.movie_response import MovieDetailResponse, MovieResponse
 
 router = APIRouter()
 
@@ -67,15 +67,16 @@ async def get_popular_movies(
         limit=limit
     )
 
-@router.get("/{movie_code}", response_model=MovieDetailResponse)
+@router.get("/{language}/{movie_code}", response_model=MovieDetailResponse)
 async def get_movie_by_code(
+    language: SupportedLanguage,
     movie_code: str = Path(..., title="The code of the movie to get"),
     services: ServiceFactory = Depends(get_services)
 ):
     """
     Get movie by code.
     """
-    movie = await services.movie_service.get_by_code(movie_code)
+    movie = await services.movie_service.get_by_code(movie_code, language)
     if not movie:
         raise HTTPException(
             status_code=404,

@@ -1,11 +1,9 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, join
-from sqlalchemy.sql import text
-
-from app.models.actress import Actress, ActressName
-from app.models.enums import SupportedLanguage
+from sqlalchemy import select, func
 from app.repositories.base_repository import BaseRepository
+from db.entity.actress import Actress, ActressName
+from db.entity.enums import SupportedLanguage
 
 class ActressRepository(BaseRepository[Actress]):
     def __init__(self):
@@ -60,15 +58,16 @@ class ActressRepository(BaseRepository[Actress]):
         self, db: AsyncSession, *, skip: int = 0, limit: int = 100
     ) -> List[Actress]:
         """获取最受欢迎的演员（根据影片数量）"""
-        from app.models.movie import movie_actresses
+        # 在方法内部导入以避免循环引用
+        from db.entity.movie_actress import MovieActress
         
         # 获取演员ID和影片数量的子查询
         subquery = (
             select(
-                movie_actresses.c.actress_id,
-                func.count(movie_actresses.c.movie_id).label("movie_count")
+                MovieActress.actress_id,
+                func.count(MovieActress.movie_id).label("movie_count")
             )
-            .group_by(movie_actresses.c.actress_id)
+            .group_by(MovieActress.actress_id)
             .subquery()
         )
         

@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_services
-from app.models.crawler import (
-    CrawlerProgressCreate, CrawlerProgressResponse,
+from db.entity.crawler import (
+    CrawlerProgressCreate,
+    CrawlerProgressResponse, 
     PagesProgressCreate, PagesProgressResponse,
     VideoProgressCreate, VideoProgressResponse,
     CrawlerProgressSummary

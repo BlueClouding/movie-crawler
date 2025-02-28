@@ -1,19 +1,20 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Column, Integer, Text, ForeignKey, Date
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date
 from sqlalchemy.orm import relationship
 
-from app.models.base import DBBaseModel
+from db.entity.base import DBBaseModel
 
 class Magnet(DBBaseModel):
     __tablename__ = "magnets"
+    __table_args__ = {'extend_existing': True}
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)
     url = Column(Text, nullable=False)
     name = Column(Text)
     size = Column(Text)
-    created_date = Column(Date)
+    created_date = Column(String(50), nullable=False)
     
     # 关系
     movie = relationship("Movie", back_populates="magnets")
@@ -23,6 +24,7 @@ class Magnet(DBBaseModel):
 
 class DownloadUrl(DBBaseModel):
     __tablename__ = "download_urls"
+    __table_args__ = {'extend_existing': True}
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)
     url = Column(Text, nullable=False)
@@ -38,6 +40,7 @@ class DownloadUrl(DBBaseModel):
 
 class WatchUrl(DBBaseModel):
     __tablename__ = "watch_urls"
+    __table_args__ = {'extend_existing': True}
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)
     url = Column(Text, nullable=False)
@@ -49,32 +52,3 @@ class WatchUrl(DBBaseModel):
     
     def __repr__(self):
         return f"<WatchUrl {self.id}>"
-    
-class DownloadUrlResponse(BaseModel):
-    id: int
-    movie_id: int
-    url: str
-    source: Optional[str] = None
-    created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
-
-class WatchUrlResponse(BaseModel):
-    id: int
-    movie_id: int
-    url: str
-    source: Optional[str] = None
-    created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
-    
-class MagnetResponse(BaseModel):
-    id: int
-    movie_id: int
-    link: str
-    name: Optional[str] = None
-    size: Optional[str] = None
-    share_date: Optional[datetime] = None
-    created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)

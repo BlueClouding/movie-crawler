@@ -2,17 +2,42 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
 from sqlalchemy import select, desc # Import select and desc for async queries
-from app.models import Movie, MovieTitle, SupportedLanguage
+from db.entity.enums import SupportedLanguage
+from db.entity.genre import Genre, GenreName
+from db.entity.movie import Movie, MovieTitle
+from models.response.movie_response import MovieDetailResponse
 from .base_service import BaseService
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import contains_eager
 
 class MovieService(BaseService[Movie]):
     def __init__(self, db: AsyncSession): # Corrected to AsyncSession
         super().__init__(db, Movie)
 
-    async def get_by_code(self, code: str) -> Optional[Movie]:
-        result = await self.db.execute(select(Movie).where(Movie.code == code)) # Use session.execute() and select
-        logging.debug(f"计算结果: {result}")
+    async def get_by_code(self, code: str, language: str) -> Optional[MovieDetailResponse]:
+        stmt = (
+            select(Movie)
+            .outerjoin(Movie.titles.and_(MovieTitle.language == language))  # 左连接过滤标题
+            .outerjoin(Movie.genres)
+            .outerjoin(Genre.names.and_(GenreName.language == language))    # 过滤类型名称
+            .where(Movie.code == code)
+            .options(
+                contains_eager(Movie.titles),
+                contains_eager(Movie.genres).contains_eager(Genre.names),
+                selectinload(Movie.actresses),
+                selectinload(Movie.download_urls),
+                selectinload(Movie.magnets),
+            )
+        )
+        
+        result = await self.db.execute(stmt)
+        movie = result.unique().scalar_one_or_none()  # 使用 unique() 避免重复数据
+        
+        return MovieDetailResponse.model_validate(movie) if movie else None       
+
+    async def get_by_id(self, id: int) -> Optional[Movie]:
+        result = await self.db.execute(select(Movie).where(Movie.id == id)) # Use session.execute() and select
         return result.scalar_one_or_none() # Use scalar_one_or_none (async equivalent of first())
 
     async def search_by_title(

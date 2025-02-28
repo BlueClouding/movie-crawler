@@ -3,13 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_services
-from app.models.genre import (
-    GenreCreate, GenreUpdate, GenreResponse,
-    GenreDetailResponse, GenreNameCreate
-)
-from app.models.movie import MovieResponse
-from app.models.enums import SupportedLanguage
+
 from app.services import ServiceFactory
+from db.entity.enums import SupportedLanguage
+from models.request.genre_request import GenreCreate, GenreNameCreate, GenreUpdate
+from models.response.genre_response import GenreDetailResponse, GenreResponse
+from models.response.movie_response import MovieResponse
 
 router = APIRouter()
 

@@ -1,36 +1,23 @@
 from datetime import timedelta, date
+from typing import List, Optional
 from sqlalchemy import Column, DateTime, String, Integer, Date, Text, Interval, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
+from pydantic import BaseModel, ConfigDict
+from app.config.database import Base
+from db.entity import movie_actress, movie_genres
+from db.entity.base import DBBaseModel
+from db.entity.enums import SupportedLanguageEnum
 
-from config.database import Base
-from app.models.base import DBBaseModel
-from app.models.enums import SupportedLanguageEnum
-
-
-# 电影-演员关联表
-movie_actresses = Table(
-    'movie_actresses',
-    Base.metadata,
-    Column('movie_id', Integer, ForeignKey('movies.id'), primary_key=True),
-    Column('actress_id', Integer, ForeignKey('actresses.id'), primary_key=True)
-)
-
-# 电影-类型关联表
-movie_genres = Table(
-    'movie_genres',
-    Base.metadata,
-    Column('movie_id', Integer, ForeignKey('movies.id'), primary_key=True),
-    Column('genre_id', Integer, ForeignKey('genres.id'), primary_key=True)
-)
 
 class Movie(DBBaseModel):
     __tablename__ = "movies"
+    __table_args__ = {'extend_existing': True}
     
     code = Column(String(50), nullable=False, index=True)
-    duration = Column(Interval, nullable=False)
-    release_date = Column(Date, nullable=False)
+    duration = Column(String(50), nullable=False)
+    release_date = Column(String(50), nullable=False)
     cover_image_url = Column(Text)
     preview_video_url = Column(Text)
     likes = Column(Integer, default=0)
@@ -38,19 +25,29 @@ class Movie(DBBaseModel):
     link = Column(String(255))
     original_id = Column(Integer)
     
-    # 关系
+    # 关系 - 修改为使用关联类
     titles = relationship("MovieTitle", back_populates="movie", cascade="all, delete-orphan")
-    actresses = relationship("Actress", secondary=movie_actresses, back_populates="movies")
-    genres = relationship("Genre", secondary=movie_genres, back_populates="movies")
+    actress_associations = relationship("MovieActress", back_populates="movie", cascade="all, delete-orphan")
+    genre_associations = relationship("MovieGenre", back_populates="movie", cascade="all, delete-orphan")
     magnets = relationship("Magnet", back_populates="movie", cascade="all, delete-orphan")
     download_urls = relationship("DownloadUrl", back_populates="movie", cascade="all, delete-orphan")
     watch_urls = relationship("WatchUrl", back_populates="movie", cascade="all, delete-orphan")
+    
+    # 方便访问的属性
+    @property
+    def actresses(self):
+        return [association.actress for association in self.actress_associations]
+        
+    @property
+    def genres(self):
+        return [association.genre for association in self.genre_associations]
     
     def __repr__(self):
         return f"<Movie {self.code}>"
 
 class MovieTitle(DBBaseModel):
     __tablename__ = "movie_titles"
+    __table_args__ = {'extend_existing': True}
     
     movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)
     language = Column(SupportedLanguageEnum, nullable=False)
