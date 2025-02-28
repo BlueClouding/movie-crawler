@@ -24,23 +24,19 @@ class MovieService(BaseService[Movie]):
         stmt = (
             select(Movie)
             .outerjoin(
-                MovieTitle,  # 标题表
-                and_(MovieTitle.movie_id == Movie.id, MovieTitle.language == language)
+                Movie.titles,  # Use the relationship, not the table directly
+                and_(MovieTitle.language == language)
             )
+            .outerjoin(Movie.genre_associations)
+            .outerjoin(MovieGenre.genre)
             .outerjoin(
-                Movie.genre_associations  # 使用ORM关系（中间表）
-            )
-            .outerjoin(
-                MovieGenre.genre  # 中间表 -> Genre表
-            )
-            .outerjoin(
-                GenreName,        # Genre名称表
-                and_(GenreName.genre_id == Genre.id, GenreName.language == language)
+                Genre.names,  # Use the relationship, not the table directly
+                and_(GenreName.language == language)
             )
             .where(Movie.code == code)
             .options(
                 contains_eager(Movie.titles),
-                contains_eager(Movie.genre_associations).contains_eager(MovieGenre.genre),
+                contains_eager(Movie.genre_associations).contains_eager(MovieGenre.genre).contains_eager(Genre.names),
                 selectinload(Movie.actress_associations).joinedload(MovieActress.actress),
                 selectinload(Movie.download_urls),
                 selectinload(Movie.magnets),
@@ -49,7 +45,7 @@ class MovieService(BaseService[Movie]):
         
         result = await self.db.execute(stmt)
         movie = result.unique().scalar_one_or_none()
-        return MovieDetailResponse.model_validate(movie) if movie else None  
+        return MovieDetailResponse.model_validate(movie) if movie else None
 
     async def get_by_id(self, id: int) -> Optional[Movie]:
         result = await self.db.execute(select(Movie).where(Movie.id == id)) # Use session.execute() and select
