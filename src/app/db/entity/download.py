@@ -4,7 +4,8 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date
 from sqlalchemy.orm import relationship
 
-from db.entity.base import DBBaseModel
+from app.db.entity.base import DBBaseModel
+
 
 class Magnet(DBBaseModel):
     __tablename__ = "magnets"
@@ -17,7 +18,7 @@ class Magnet(DBBaseModel):
     created_date = Column(String(50), nullable=False)
     
     # 关系
-    movie = relationship("Movie", back_populates="magnets")
+    movie = relationship("app.db.entity.movie.Movie", back_populates="magnets")
     
     def __repr__(self):
         return f"<Magnet {self.id}>"
@@ -33,7 +34,7 @@ class DownloadUrl(DBBaseModel):
     index = Column(Integer, nullable=False)
     
     # 关系
-    movie = relationship("Movie", back_populates="download_urls")
+    movie = relationship("app.db.entity.movie.Movie", back_populates="download_urls")
     
     def __repr__(self):
         return f"<DownloadUrl {self.id}>"
@@ -48,7 +49,7 @@ class WatchUrl(DBBaseModel):
     index = Column(Integer, nullable=False)
     
     # 关系
-    movie = relationship("Movie", back_populates="watch_urls")
+    movie = relationship("app.db.entity.movie.Movie", back_populates="watch_urls")
     
     def __repr__(self):
         return f"<WatchUrl {self.id}>"

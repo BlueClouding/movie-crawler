@@ -6,9 +6,8 @@ from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
 from pydantic import BaseModel, ConfigDict
 from app.config.database import Base
-from db.entity import movie_actress, movie_genres
-from db.entity.base import DBBaseModel
-from db.entity.enums import SupportedLanguageEnum
+from app.db.entity.base import DBBaseModel
+from app.db.entity.enums import SupportedLanguageEnum
 
 
 class Movie(DBBaseModel):
@@ -26,12 +25,12 @@ class Movie(DBBaseModel):
     original_id = Column(Integer)
     
     # 关系 - 修改为使用关联类
-    titles = relationship("MovieTitle", back_populates="movie", cascade="all, delete-orphan")
-    actress_associations = relationship("MovieActress", back_populates="movie", cascade="all, delete-orphan")
-    genre_associations = relationship("MovieGenre", back_populates="movie", cascade="all, delete-orphan")
-    magnets = relationship("Magnet", back_populates="movie", cascade="all, delete-orphan")
-    download_urls = relationship("DownloadUrl", back_populates="movie", cascade="all, delete-orphan")
-    watch_urls = relationship("WatchUrl", back_populates="movie", cascade="all, delete-orphan")
+    titles = relationship("app.db.entity.movie_info.MovieTitle", back_populates="movie", cascade="all, delete-orphan")
+    actress_associations = relationship("app.db.entity.movie_actress.MovieActress", back_populates="movie", cascade="all, delete-orphan")
+    genre_associations = relationship("app.db.entity.movie_genres.MovieGenre", back_populates="movie", cascade="all, delete-orphan")
+    magnets = relationship("app.db.entity.download.Magnet", back_populates="movie", cascade="all, delete-orphan")
+    download_urls = relationship("app.db.entity.download.DownloadUrl", back_populates="movie", cascade="all, delete-orphan")
+    watch_urls = relationship("app.db.entity.download.WatchUrl", back_populates="movie", cascade="all, delete-orphan")
     
     # 方便访问的属性
     @property
@@ -44,17 +43,3 @@ class Movie(DBBaseModel):
     
     def __repr__(self):
         return f"<Movie {self.code}>"
-
-class MovieTitle(DBBaseModel):
-    __tablename__ = "movie_titles"
-    __table_args__ = {'extend_existing': True}
-    
-    movie_id = Column(Integer, ForeignKey("movies.id"), nullable=False)
-    language = Column(SupportedLanguageEnum, nullable=False)
-    title = Column(Text, nullable=False)
-    
-    # 关系
-    movie = relationship("Movie", back_populates="titles")
-    
-    def __repr__(self):
-        return f"<MovieTitle {self.language}: {self.title}>"

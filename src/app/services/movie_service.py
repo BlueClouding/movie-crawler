@@ -1,11 +1,16 @@
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
-from sqlalchemy import select, desc # Import select and desc for async queries
-from db.entity.enums import SupportedLanguage
-from db.entity.genre import Genre, GenreName
-from db.entity.movie import Movie, MovieTitle
-from models.response.movie_response import MovieDetailResponse
+from sqlalchemy import and_, select, desc
+
+from app.db.entity.enums import SupportedLanguage
+from app.db.entity.genre import Genre, GenreName
+from app.db.entity.movie import Movie
+from app.db.entity.movie_actress import MovieActress
+from app.db.entity.movie_genres import MovieGenre
+from app.db.entity.movie_info import MovieTitle
+from app.models.response.movie_response import MovieDetailResponse
+
 from .base_service import BaseService
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,23 +23,33 @@ class MovieService(BaseService[Movie]):
     async def get_by_code(self, code: str, language: str) -> Optional[MovieDetailResponse]:
         stmt = (
             select(Movie)
-            .outerjoin(Movie.titles.and_(MovieTitle.language == language))  # 左连接过滤标题
-            .outerjoin(Movie.genres)
-            .outerjoin(Genre.names.and_(GenreName.language == language))    # 过滤类型名称
+            .outerjoin(
+                MovieTitle,  # 标题表
+                and_(MovieTitle.movie_id == Movie.id, MovieTitle.language == language)
+            )
+            .outerjoin(
+                Movie.genre_associations  # 使用ORM关系（中间表）
+            )
+            .outerjoin(
+                MovieGenre.genre  # 中间表 -> Genre表
+            )
+            .outerjoin(
+                GenreName,        # Genre名称表
+                and_(GenreName.genre_id == Genre.id, GenreName.language == language)
+            )
             .where(Movie.code == code)
             .options(
                 contains_eager(Movie.titles),
-                contains_eager(Movie.genres).contains_eager(Genre.names),
-                selectinload(Movie.actresses),
+                contains_eager(Movie.genre_associations).contains_eager(MovieGenre.genre),
+                selectinload(Movie.actress_associations).joinedload(MovieActress.actress),
                 selectinload(Movie.download_urls),
                 selectinload(Movie.magnets),
             )
         )
         
         result = await self.db.execute(stmt)
-        movie = result.unique().scalar_one_or_none()  # 使用 unique() 避免重复数据
-        
-        return MovieDetailResponse.model_validate(movie) if movie else None       
+        movie = result.unique().scalar_one_or_none()
+        return MovieDetailResponse.model_validate(movie) if movie else None  
 
     async def get_by_id(self, id: int) -> Optional[Movie]:
         result = await self.db.execute(select(Movie).where(Movie.id == id)) # Use session.execute() and select

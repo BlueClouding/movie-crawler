@@ -1,7 +1,7 @@
 from sqlalchemy import Column, ForeignKey, Integer
 from sqlalchemy.orm import relationship
-from config.database import Base
-from db.entity.base import DBBaseModel
+
+from app.db.entity.base import DBBaseModel
 
 class MovieGenre(DBBaseModel):
     __tablename__ = "movie_genres"
@@ -11,8 +11,8 @@ class MovieGenre(DBBaseModel):
     genre_id = Column(Integer, ForeignKey('genres.id'), primary_key=True)
     
     # 关系
-    movie = relationship("Movie", back_populates="genre_associations")
-    genre = relationship("Genre", back_populates="movie_associations")
+    movie = relationship("app.db.entity.movie.Movie", back_populates="genre_associations")
+    genre = relationship("app.db.entity.genre.Genre", back_populates="movie_associations")
     
     def __repr__(self):
         return f"<MovieGenre movie_id={self.movie_id} genre_id={self.genre_id}>"

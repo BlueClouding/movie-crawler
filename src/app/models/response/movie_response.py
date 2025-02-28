@@ -3,11 +3,11 @@
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
-from models.response.actress_response import ActressResponse
-from models.response.genre_response import GenreResponse
-from models.response.magnet_response import DownloadUrlResponse, MagnetResponse
-from models.response.movie_info_response import MovieTitleResponse
-from models.response.watch_resource_response import WatchUrlResponse
+from app.models.response.actress_response import ActressResponse
+from app.models.response.genre_response import GenreResponse
+from app.models.response.magnet_response import DownloadUrlResponse, MagnetResponse
+from app.models.response.movie_info_response import MovieTitleResponse
+from app.models.response.watch_resource_response import WatchUrlResponse
 
 
 class MovieResponse(BaseModel):

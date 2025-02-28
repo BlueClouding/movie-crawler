@@ -2,10 +2,10 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 
-from db.entity.enums import SupportedLanguage
-from db.entity.genre import Genre, GenreName
+from app.db.entity.enums import SupportedLanguage
+from app.db.entity.genre import Genre, GenreName
+from app.db.entity.movie_genres import MovieGenre
 from app.repositories.base_repository import BaseRepository
-from db.entity.movie_genres import MovieGenre
 
 class GenreRepository(BaseRepository[Genre]):
     def __init__(self):

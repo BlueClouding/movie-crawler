@@ -3,11 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from app.db.entity.enums import SupportedLanguage
+from app.db.entity.movie import Movie
+from app.db.entity.movie_actress import MovieActress
+from app.db.entity.movie_genres import MovieGenre
+from app.db.entity.movie_info import MovieTitle
 from app.repositories.base_repository import BaseRepository
-from db.entity.enums import SupportedLanguage
-from db.entity.movie import Movie, MovieTitle
-from db.entity.movie_actress import MovieActress
-from db.entity.movie_genres import MovieGenre
 
 class MovieRepository(BaseRepository[Movie]):
     def __init__(self):
@@ -46,10 +47,6 @@ class MovieRepository(BaseRepository[Movie]):
     async def get_by_actress(
         self, db: AsyncSession, *, actress_id: int, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
-        """获取演员的所有影片"""
-        # 使用MovieActress类而不是关系属性
-        from db.entity.movie_actress import MovieActress
-        
         query = (
             select(Movie)
             .join(MovieActress, Movie.id == MovieActress.movie_id)

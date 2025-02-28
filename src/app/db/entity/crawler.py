@@ -5,26 +5,27 @@ from sqlalchemy import Column, String, Integer, Text, ForeignKey, Boolean, DateT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from db.entity.base import DBBaseModel
-
+from app.db.entity.base import DBBaseModel
 
 
 
 class CrawlerProgress(DBBaseModel):
     __tablename__ = "crawler_progress"
+    __table_args__ = {'extend_existing': True}
     
     task_type = Column(String(50), nullable=False)
     status = Column(String(20), default="pending", nullable=False)
     last_update = Column(DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     
     # 关系
-    pages = relationship("PagesProgress", back_populates="crawler_progress", cascade="all, delete-orphan")
+    pages = relationship("app.db.entity.crawler.PagesProgress", back_populates="crawler_progress", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<CrawlerProgress {self.task_type}: {self.status}>"
 
 class PagesProgress(DBBaseModel):
     __tablename__ = "pages_progress"
+    __table_args__ = {'extend_existing': True}
     
     crawler_progress_id = Column(Integer, ForeignKey("crawler_progress.id"), nullable=False)
     relation_id = Column(Integer, nullable=False)
@@ -44,6 +45,7 @@ class PagesProgress(DBBaseModel):
 
 class VideoProgress(DBBaseModel):
     __tablename__ = "video_progress"
+    __table_args__ = {'extend_existing': True}
     
     code = Column(String(50), nullable=False)
     url = Column(Text, nullable=False)

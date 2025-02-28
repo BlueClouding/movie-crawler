@@ -6,7 +6,7 @@ app = create_app() # 调用工厂函数创建 app 实例
 
 if __name__ == "__main__":
     uvicorn.run(
-        app, # 直接传递 app 实例
+        "app.main:app",  # 格式为 "模块路径:应用实例名"
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
         reload=settings.DEBUG
