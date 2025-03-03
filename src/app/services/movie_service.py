@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
-from sqlalchemy import and_, select, desc
+from sqlalchemy import and_, select, desc, join
 
 from app.db.entity.enums import SupportedLanguage
 from app.db.entity.genre import Genre, GenreName
@@ -9,60 +9,136 @@ from app.db.entity.movie import Movie
 from app.db.entity.movie_actress import MovieActress
 from app.db.entity.movie_genres import MovieGenre
 from app.db.entity.movie_info import MovieTitle
+from app.db.entity.actress import Actress, ActressName
+from app.db.entity.download import Magnet, DownloadUrl, WatchUrl
 from app.models.response.movie_response import MovieDetailResponse
 
 from .base_service import BaseService
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sqlalchemy.orm import contains_eager
 
 class MovieService(BaseService[Movie]):
-    def __init__(self, db: AsyncSession): # Corrected to AsyncSession
+    def __init__(self, db: AsyncSession):
         super().__init__(db, Movie)
 
     async def get_by_code(self, code: str, language: str) -> Optional[MovieDetailResponse]:
-        stmt = (
-            select(Movie)
-            .outerjoin(
-                Movie.titles,  # Use the relationship, not the table directly
-                and_(MovieTitle.language == language)
+        # 获取电影基本信息
+        movie_query = select(Movie).where(Movie.code == code)
+        movie_result = await self.db.execute(movie_query)
+        movie = movie_result.scalar_one_or_none()
+        
+        if not movie:
+            return None
+        
+        # 获取电影标题 - 明确指定要查询的列
+        title_query = select(
+            MovieTitle.id,
+            MovieTitle.movie_id,
+            MovieTitle.language,
+            MovieTitle.title
+        ).where(
+            and_(MovieTitle.movie_id == movie.id, MovieTitle.language == language)
+        )
+        title_result = await self.db.execute(title_query)
+        titles = [dict(zip(['id', 'movie_id', 'language', 'title'], row)) for row in title_result.all()]
+        
+        # 获取电影类型 - 明确指定要查询的列
+        genre_query = (
+            select(
+                Genre.id.label('genre_id'),
+                Genre.urls.label('urls'),
+                GenreName.id.label('name_id'),
+                GenreName.name.label('name'),
+                GenreName.language.label('language')
             )
-            .outerjoin(Movie.genre_associations)
-            .outerjoin(MovieGenre.genre)
-            .outerjoin(
-                Genre.names,  # Use the relationship, not the table directly
-                and_(GenreName.language == language)
-            )
-            .where(Movie.code == code)
-            .options(
-                contains_eager(Movie.titles),
-                contains_eager(Movie.genre_associations).contains_eager(MovieGenre.genre).contains_eager(Genre.names),
-                selectinload(Movie.actress_associations).joinedload(MovieActress.actress),
-                selectinload(Movie.download_urls),
-                selectinload(Movie.magnets),
+            .join(MovieGenre, Genre.id == MovieGenre.genre_id)
+            .join(GenreName, Genre.id == GenreName.genre_id)
+            .where(
+                and_(MovieGenre.movie_id == movie.id, GenreName.language == language)
             )
         )
+        genre_result = await self.db.execute(genre_query)
+        genres = [dict(row) for row in genre_result.all()]
         
-        result = await self.db.execute(stmt)
-        movie = result.unique().scalar_one_or_none()
-        return MovieDetailResponse.model_validate(movie) if movie else None
+        # 获取电影演员 - 明确指定要查询的列
+        actress_query = (
+            select(
+                Actress.id.label('actress_id'),
+                ActressName.id.label('name_id'),
+                ActressName.name.label('name'),
+                ActressName.language.label('language')
+            )
+            .join(MovieActress, Actress.id == MovieActress.actress_id)
+            .join(ActressName, Actress.id == ActressName.actress_id)
+            .where(
+                and_(MovieActress.movie_id == movie.id, ActressName.language == language)
+            )
+        )
+        actress_result = await self.db.execute(actress_query)
+        actresses = [dict(row) for row in actress_result.all()]
+        
+        # 获取下载链接 - 明确指定要查询的列
+        download_query = select(
+            DownloadUrl.id,
+            DownloadUrl.movie_id,
+            DownloadUrl.url,
+            DownloadUrl.name,
+            DownloadUrl.host,
+            DownloadUrl.index
+        ).where(DownloadUrl.movie_id == movie.id).order_by(DownloadUrl.index)
+        download_result = await self.db.execute(download_query)
+        download_urls = [dict(zip(['id', 'movie_id', 'url', 'name', 'host', 'index'], row)) for row in download_result.all()]
+        
+        # 获取磁力链接 - 明确指定要查询的列
+        magnet_query = select(
+            Magnet.id,
+            Magnet.movie_id,
+            Magnet.url,
+            Magnet.name,
+            Magnet.size,
+            Magnet.created_date
+        ).where(Magnet.movie_id == movie.id)
+        magnet_result = await self.db.execute(magnet_query)
+        magnets = [dict(zip(['id', 'movie_id', 'url', 'name', 'size', 'created_date'], row)) for row in magnet_result.all()]
+        
+        # 获取观看链接 - 明确指定要查询的列
+        watch_query = select(
+            WatchUrl.id,
+            WatchUrl.movie_id,
+            WatchUrl.url,
+            WatchUrl.name,
+            WatchUrl.index
+        ).where(WatchUrl.movie_id == movie.id).order_by(WatchUrl.index)
+        watch_result = await self.db.execute(watch_query)
+        watch_urls = [dict(zip(['id', 'movie_id', 'url', 'name', 'index'], row)) for row in watch_result.all()]
+        
+        # 构建响应对象
+        movie_detail = {
+            "movie": movie,
+            "titles": titles,
+            "genres": genres,
+            "actresses": actresses,
+            "download_urls": download_urls,
+            "magnets": magnets,
+            "watch_urls": watch_urls
+        }
+        
+        return MovieDetailResponse.model_validate(movie_detail)
 
     async def get_by_id(self, id: int) -> Optional[Movie]:
-        result = await self.db.execute(select(Movie).where(Movie.id == id)) # Use session.execute() and select
-        return result.scalar_one_or_none() # Use scalar_one_or_none (async equivalent of first())
+        result = await self.db.execute(select(Movie).where(Movie.id == id))
+        return result.scalar_one_or_none()
 
     async def search_by_title(
         self,
         title: str,
-        language: Optional[SupportedLanguage] = None,  # 参数类型为枚举成员
+        language: Optional[SupportedLanguage] = None,
         skip: int = 0,
         limit: int = 20
     ) -> List[Movie]:
-        query = select(Movie).join(MovieTitle)
+        query = select(Movie).join(MovieTitle, Movie.id == MovieTitle.movie_id)
         query = query.where(MovieTitle.title.ilike(f"%{title}%"))
 
         if language:
-            # 直接使用枚举成员，SQLAlchemy 会自动转换为对应的值（如 'ja'）
             query = query.where(MovieTitle.language == language)
 
         query = query.offset(skip).limit(limit)
@@ -71,32 +147,32 @@ class MovieService(BaseService[Movie]):
 
     async def get_recent_releases(self, days: int = 30, skip: int = 0, limit: int = 20) -> List[Movie]:
         cutoff_date = date.today() - timedelta(days=days)
-        query = select(Movie).where(Movie.release_date >= cutoff_date).order_by(desc(Movie.release_date)) # Use select, where, and desc
-        result = await self.db.execute(query.offset(skip).limit(limit)) # Use session.execute() and await
-        return result.scalars().all() # Use .scalars().all() for async results
+        query = select(Movie).where(Movie.release_date >= cutoff_date).order_by(desc(Movie.release_date))
+        result = await self.db.execute(query.offset(skip).limit(limit))
+        return result.scalars().all()
 
     async def get_popular_movies(self, skip: int = 0, limit: int = 20) -> List[Movie]:
-        query = select(Movie).order_by(desc(Movie.likes)) # Use select and order_by desc
-        result = await self.db.execute(query.offset(skip).limit(limit)) # Use session.execute() and await
-        return result.scalars().all() # Use .scalars().all() for async results
+        query = select(Movie).order_by(desc(Movie.likes))
+        result = await self.db.execute(query.offset(skip).limit(limit))
+        return result.scalars().all()
 
     async def increment_likes(self, movie_id: int) -> Optional[Movie]:
-        movie = await self.get_by_id(movie_id) # Use await for async get_by_id
+        movie = await self.get_by_id(movie_id)
         if not movie:
             return None
 
         movie.likes += 1
-        await self.db.commit() # Await commit
-        await self.db.refresh(movie) # Await refresh
+        await self.db.commit()
+        await self.db.refresh(movie)
         return movie
 
     async def add_title(self, movie_id: int, title: str, language: SupportedLanguage) -> Optional[MovieTitle]:
-        movie = await self.get_by_id(movie_id) # Use await for async get_by_id
+        movie = await self.get_by_id(movie_id)
         if not movie:
             return None
 
         movie_title = MovieTitle(movie_id=movie_id, title=title, language=language)
         self.db.add(movie_title)
-        await self.db.commit() # Await commit
-        await self.db.refresh(movie_title) # Await refresh
+        await self.db.commit()
+        await self.db.refresh(movie_title)
         return movie_title

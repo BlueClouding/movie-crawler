@@ -1,8 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, Boolean, DateTime
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Integer, Text, Boolean, DateTime
 from sqlalchemy.sql import func
 
 from app.db.entity.base import DBBaseModel
@@ -17,9 +16,6 @@ class CrawlerProgress(DBBaseModel):
     status = Column(String(20), default="pending", nullable=False)
     last_update = Column(DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     
-    # 关系
-    pages = relationship("app.db.entity.crawler.PagesProgress", back_populates="crawler_progress", cascade="all, delete-orphan")
-    
     def __repr__(self):
         return f"<CrawlerProgress {self.task_type}: {self.status}>"
 
@@ -27,7 +23,7 @@ class PagesProgress(DBBaseModel):
     __tablename__ = "pages_progress"
     __table_args__ = {'extend_existing': True}
     
-    crawler_progress_id = Column(Integer, ForeignKey("crawler_progress.id"), nullable=False)
+    crawler_progress_id = Column(Integer, nullable=False)
     relation_id = Column(Integer, nullable=False)
     page_type = Column(String(50), nullable=False)
     page_number = Column(Integer, nullable=False)
@@ -36,9 +32,6 @@ class PagesProgress(DBBaseModel):
     processed_items = Column(Integer, default=0)
     status = Column(String(20), default="pending", nullable=False)
     last_update = Column(DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())
-    
-    # 关系
-    crawler_progress = relationship("CrawlerProgress", back_populates="pages")
     
     def __repr__(self):
         return f"<PagesProgress {self.page_type} {self.page_number}/{self.total_pages}>"
