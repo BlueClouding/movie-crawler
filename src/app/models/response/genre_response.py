@@ -17,6 +17,7 @@ class GenreResponse(BaseModel):
     id: int
     urls: Optional[List[str]] = None
     names: List[GenreNameResponse] = []
+    code: Optional[str] = None  # 添加code字段
     model_config = ConfigDict(from_attributes=True)
 
 class GenreDetailResponse(BaseModel):
@@ -24,6 +25,7 @@ class GenreDetailResponse(BaseModel):
     
     id: int
     urls: List[str]
+    code: Optional[str] = None  # 添加code字段
     created_at: datetime
     names: List[GenreNameResponse] = []
     movies: List[dict] = []  # 或使用 MovieResponse 类型

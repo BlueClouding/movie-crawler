@@ -24,6 +24,22 @@ class GenreRepository(BaseRepository[Genre]):
         query = query.filter(GenreName.name == name)
         result = await db.execute(query)
         return result.scalars().first()
+        
+    async def get_by_code(
+        self, db: AsyncSession, *, code: str
+    ) -> Optional[Genre]:
+        """根据code获取类型
+        
+        Args:
+            db: 数据库会话
+            code: 类型代码
+            
+        Returns:
+            Optional[Genre]: 找到的类型，如果没有找到则返回None
+        """
+        query = select(Genre).filter(Genre.code == code)
+        result = await db.execute(query)
+        return result.scalars().first()
     
     async def search_by_name(
         self, db: AsyncSession, *, name: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
@@ -89,11 +105,21 @@ class GenreRepository(BaseRepository[Genre]):
         }
     
     async def create_with_names(
-        self, db: AsyncSession, *, names: List[Dict[str, Any]], urls: List[str] = None
+        self, db: AsyncSession, *, names: List[Dict[str, Any]], urls: List[str] = None, code: str = None
     ) -> Genre:
-        """创建类型及其多语言名称"""
+        """创建类型及其多语言名称
+        
+        Args:
+            db: 数据库会话
+            names: 多语言名称列表，每个元素包含name和language
+            urls: URL列表
+            code: 类型代码
+            
+        Returns:
+            Genre: 创建的类型对象
+        """
         # 创建类型
-        db_genre = Genre(urls=urls or [])
+        db_genre = Genre(urls=urls or [], code=code)
         db.add(db_genre)
         await db.flush()  # 获取ID但不提交
         

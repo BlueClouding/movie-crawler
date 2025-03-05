@@ -5,7 +5,7 @@ from app.db.entity.enums import SupportedLanguage
 from app.db.entity.movie import Movie
 from app.repositories.actress_repository import ActressRepository
 from app.repositories.movie_repository import MovieRepository
-from crawler.core.actress_processor import Actress
+from crawler.models.actress import Actress
 from .base_service import BaseService
 
 class ActressService(BaseService[Actress]):

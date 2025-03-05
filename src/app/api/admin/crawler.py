@@ -1,5 +1,7 @@
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel
+from enum import Enum
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_services
@@ -11,8 +13,90 @@ from app.db.entity.crawler import (
     CrawlerProgressSummary
 )
 from app.services import ServiceFactory
+# 将CrawlerManager的导入移到函数内部，避免循环导入
+
+class Language(str, Enum):
+    EN = "en"
+    JA = "ja"
+    ZH = "zh"
+
+class CrawlerRequest(BaseModel):
+    base_url: str = "https://123av.com"
+    language: Language = Language.JA
+    threads: int = 3
+    clear_existing: bool = False
+    clear_all_data: bool = False
+    output_dir: str = None
+
+class CrawlerResponse(BaseModel):
+    task_id: int
+    status: str
+    message: str
 
 router = APIRouter()
+
+@router.post("/start", response_model=CrawlerResponse)
+async def start_crawler(request: CrawlerRequest, services: ServiceFactory = Depends(get_services)):
+    """Start the crawler with specified parameters."""
+    try:
+        # Clear all data if requested
+        if request.clear_all_data:
+            from app.db.operations import clear_all_tables
+            await clear_all_tables(services.db)
+        
+        # Start crawler in background task
+        task = await services.crawler_progress_service.create(obj_in={
+            "task_type": "movie_crawler",
+            "status": "pending"
+        })
+        
+        # 在函数内部导入CrawlerManager，避免循环导入
+        from crawler.core.crawler_manager import CrawlerManager
+        
+        # Create crawler manager
+        manager = CrawlerManager(
+            base_url=request.base_url,
+            task_id=task.id,
+            language=request.language,
+            threads=request.threads,
+            clear_existing=request.clear_existing,
+            output_dir=request.output_dir
+        )
+        
+        # Initialize crawler in background
+        import asyncio
+        asyncio.create_task(manager.initialize_and_start())
+        
+        return CrawlerResponse(
+            task_id=task.id,
+            status="started",
+            message="Crawler started successfully"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/stop/{task_id}")
+async def stop_crawler(
+    task_id: int = Path(..., title="The ID of the crawler task"),
+    services: ServiceFactory = Depends(get_services)
+):
+    """Stop a running crawler task."""
+    try:
+        task = await services.crawler_progress_service.get_by_id(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        if task.status == "completed":
+            raise HTTPException(status_code=400, detail="Task already completed")
+            
+        # Update status to stopped
+        await services.crawler_progress_service.update_status(task_id, "stopped")
+        
+        return {"message": "Task stopped successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/progress", response_model=List[CrawlerProgressResponse])
 async def get_crawler_progress( # Added async
