@@ -11,7 +11,8 @@ from ..utils.progress_manager import DBProgressManager
 from ..parsers.movie_parser import MovieParser
 from ..parsers.actress_parser import ActressParser
 from ..downloaders.image_downloader import ImageDownloader
-
+from ..core.movie_detail_info import _get_movie_detail
+from ..db.operations import DBOperations
 class DetailCrawler:
     """Crawler for fetching movie details."""
     
@@ -41,14 +42,24 @@ class DetailCrawler:
         # Initialize image downloader
         self._image_downloader = None
 
-    async def initialize(self, progress_manager: DBProgressManager, output_dir: str = None):
+    async def initialize(self, progress_manager: DBProgressManager, db_operations: DBOperations = None, output_dir: str = None):
         """Initialize the crawler.
         
         Args:
             progress_manager: Progress manager instance
+            db_operations: Database operations instance
             output_dir: Directory to save images
         """
         self._progress_manager = progress_manager
+        
+        # Ensure db_operations is a proper object
+        if db_operations is None:
+            self._db_operations = DBOperations(self._progress_manager._session)
+        elif not isinstance(db_operations, DBOperations):
+            self._logger.error(f"Invalid db_operations type: {type(db_operations)}")
+            self._db_operations = DBOperations(self._progress_manager._session)
+        else:
+            self._db_operations = db_operations
         
         if output_dir:
             self._image_downloader = ImageDownloader(output_dir)
@@ -88,16 +99,16 @@ class DetailCrawler:
                 # Log results
                 success_count = sum(1 for r in results if r is True)
                 error_count = sum(1 for r in results if isinstance(r, Exception))
-                self._logger.info(f"Processed batch {i//batch_size + 1}/{(len(pending_movies) + batch_size - 1)//batch_size}: {success_count} succeeded, {error_count} failed")
+                logging.info(f"Processed batch {i//batch_size + 1}/{(len(pending_movies) + batch_size - 1)//batch_size}: {success_count} succeeded, {error_count} failed")
                 
                 # Add delay between batches
                 await asyncio.sleep(random.uniform(1.0, 3.0))
                 
-            self._logger.info("Successfully processed all pending movies")
+            logging.info("Successfully processed all pending movies")
             return True
             
         except Exception as e:
-            self._logger.error(f"Error processing pending movies: {str(e)}")
+            logging.error(f"Error processing pending movies: {str(e)}")
             return False
 
     async def _process_movie(self, movie_data: Dict[str, Any]) -> bool:
@@ -128,32 +139,26 @@ class DetailCrawler:
                 return False
                 
             # Parse movie details
-            movie_details = self._movie_parser.parse_movie_page(response.text, url)
+            movie_details = _get_movie_detail(self._session, movie_data, response)
             
+            # Ensure movie_details is a dictionary
+            if not isinstance(movie_details, dict):
+                self._logger.error(f"Invalid movie details returned: {type(movie_details)}")
+                movie_details = {}
+                
             # Add original movie data
             for key, value in movie_data.items():
                 if key not in movie_details:
                     movie_details[key] = value
             
-            # Download images if downloader is available
-            if self._image_downloader and movie_details.get('code'):
-                if movie_details.get('cover_image'):
-                    await self._image_downloader.download_image(
-                        movie_details['cover_image'],
-                        f"{movie_details['code']}/cover.jpg"
-                    )
-                    
-                if movie_details.get('thumbnails'):
-                    for i, thumb_url in enumerate(movie_details['thumbnails']):
-                        await self._image_downloader.download_image(
-                            thumb_url,
-                            f"{movie_details['code']}/thumb_{i+1}.jpg"
-                        )
-                        # Add small delay between downloads
-                        await asyncio.sleep(random.uniform(0.2, 0.5))
-            
             # Save movie details to database
-            success = await self._progress_manager.save_movie_details(movie_details)
+            # Ensure self._db_operations is a proper object with saveOrUpdate method
+            if not hasattr(self._db_operations, 'saveOrUpdate'):
+                self._logger.error(f"Invalid db_operations object: {type(self._db_operations)}")
+                # Re-initialize db_operations if needed
+                self._db_operations = DBOperations(self._progress_manager._session)
+                
+            success = await self._db_operations.saveOrUpdate(movie_details)
             
             if success:
                 # Update movie status

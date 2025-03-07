@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>详情 - 视频应用</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+</head>
+<body>
+  <div class="device-container">
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <div class="status-bar-left">
+        <span class="status-bar-time">14:03</span>
+      </div>
+      <div class="status-bar-right">
+        <i class="fas fa-signal mr-2"></i>
+        <i class="fas fa-wifi mr-2"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content">
+      <!-- 返回按钮 -->
+      <div class="absolute top-2 left-2 z-10 bg-black bg-opacity-50 rounded-full p-2">
+        <i class="fas fa-arrow-left text-white"></i>
+      </div>
+      
+      <!-- 电影海报 -->
+      <div class="detail-hero">
+        <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=1050&q=80" alt="Movie Backdrop" class="detail-backdrop">
+        <div class="detail-gradient"></div>
+      </div>
+      
+      <!-- 电影信息 -->
+      <div class="detail-info">
+        <h1 class="detail-title">黑寡妇</h1>
+        <div class="detail-meta">
+          <span>2021</span>
+          <span>16+</span>
+          <span>2小时 14分钟</span>
+          <span>动作/冒险</span>
+        </div>
+        
+        <div class="flex items-center mb-4">
+          <span class="text-green-500 font-bold mr-2">98% 匹配</span>
+          <div class="flex items-center ml-2">
+            <i class="fas fa-star text-yellow-500 mr-1"></i>
+            <span>8.5/10</span>
+          </div>
+        </div>
+        
+        <!-- 操作按钮 -->
+        <div class="flex mb-6">
+          <button class="btn btn-primary flex-1 mr-2">
+            <i class="fas fa-play mr-2"></i>播放
+          </button>
+          <button class="btn btn-secondary px-3">
+            <i class="fas fa-download"></i>
+          </button>
+        </div>
+        
+        <!-- 简介 -->
+        <p class="detail-description">
+          娜塔莎·罗曼诺夫/黑寡妇的独立电影，讲述她在成为复仇者联盟一员前的故事。在《美国队长3》的事件后，娜塔莎被迫独自一人逃亡，并面对她过去间谍生涯中的一段黑暗历史。
+        </p>
+        
+        <!-- 演员阵容 -->
+        <div class="mb-6">
+          <h3 class="text-lg font-semibold mb-2">演员阵容</h3>
+          <div class="flex overflow-x-auto space-x-4 pb-2">
+            <div class="flex-shrink-0 w-20">
+              <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Actor" class="w-20 h-20 rounded-full object-cover mb-1">
+              <p class="text-center text-xs">斯嘉丽·约翰逊</p>
+            </div>
+            <div class="flex-shrink-0 w-20">
+              <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Actor" class="w-20 h-20 rounded-full object-cover mb-1">
+              <p class="text-center text-xs">大卫·哈伯</p>
+            </div>
+            <div class="flex-shrink-0 w-20">
+              <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Actor" class="w-20 h-20 rounded-full object-cover mb-1">
+              <p class="text-center text-xs">弗洛伦斯·珀</p>
+            </div>
+            <div class="flex-shrink-0 w-20">
+              <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Actor" class="w-20 h-20 rounded-full object-cover mb-1">
+              <p class="text-center text-xs">雷切尔·薇兹</p>
+            </div>
+            <div class="flex-shrink-0 w-20">
+              <img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Actor" class="w-20 h-20 rounded-full object-cover mb-1">
+              <p class="text-center text-xs">O·T·费本勒</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 相关推荐 -->
+        <div>
+          <h3 class="text-lg font-semibold mb-2">相关推荐</h3>
+          <div class="grid grid-cols-3 gap-2">
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1512113569142-8a60fccc7caa?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1485846234645-a62644f84728?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1559108318-39ed452bb6c9?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <div class="tab-item">
+        <i class="fas fa-home tab-icon"></i>
+        <span>首页</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-search tab-icon"></i>
+        <span>搜索</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-th-large tab-icon"></i>
+        <span>分类</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-heart tab-icon"></i>
+        <span>我的</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-user tab-icon"></i>
+        <span>账户</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

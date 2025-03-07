@@ -97,19 +97,20 @@ class GenreProcessor:
                     # 如果设置了最大页数限制，则只处理指定数量的页面
                     if self._max_pages is not None and self._max_pages < total_pages:
                         self._logger.info(f"Limiting to {self._max_pages} pages for genre: {genre['name']}")
-                        total_pages = self._max_pages
-                    
-                    # Update progress
-                    await progress_manager.update_genre_progress(
-                        genre_id=genre_id,
-                        page=current_page,
-                        total_pages=total_pages,
-                        code=genre_code
-                    )
-                    
+                        total_pages = self._max_pages     
+                
                     # Process each page
-                    for page in range(current_page + 1, total_pages + 1):
+                    for page in range(current_page, total_pages + 1):
                         try:
+                            # Update progress after each page
+                            page_progress_id = await progress_manager.update_genre_progress(
+                                genre_id=genre_id,
+                                page=page,
+                                total_pages=total_pages,
+                                code=genre_code,
+                                status='processing',
+                            )
+
                             # Process page and save data immediately
                             movies = await self._process_page(genre['url'], page)
                             if movies:
@@ -118,18 +119,18 @@ class GenreProcessor:
                                     try:
                                         movie['genre_id'] = genre_id
                                         movie['page_number'] = page
+                                        movie['page_progress_id'] = page_progress_id
                                         await progress_manager.save_movie(movie)
+                                        await progress_manager.update_genre_progress(
+                                            genre_id=genre_id,
+                                            page=page,
+                                            total_pages=total_pages,
+                                            code=genre_code,
+                                            total_items=len(movies)
+                                        )
                                     except Exception as e:
                                         self._logger.error(f"Error saving movie: {str(e)}")
                                         continue
-                            
-                            # Update progress after each page
-                            await progress_manager.update_genre_progress(
-                                genre_id=genre_id,
-                                page=page,
-                                total_pages=total_pages,
-                                code=genre_code
-                            )
                         except Exception as e:
                             self._logger.error(f"Error processing page {page} of genre {genre['name']}: {str(e)}")
                             continue

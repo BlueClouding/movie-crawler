@@ -28,9 +28,8 @@ class PagesProgress(DBBaseModel):
     page_type = Column(String(50), nullable=False)
     page_number = Column(Integer, nullable=False)
     total_pages = Column(Integer, nullable=False)
-    total_items = Column(Integer, default=0)
-    processed_items = Column(Integer, default=0)
     status = Column(String(20), default="pending", nullable=False)
+    total_items = Column(Integer, nullable=False)
     last_update = Column(DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     
     def __repr__(self):
@@ -41,6 +40,7 @@ class VideoProgress(DBBaseModel):
     __table_args__ = {'extend_existing': True}
     
     code = Column(String(50), nullable=False)
+    crawler_progress_id = Column(Integer, nullable=False)
     url = Column(Text, nullable=False)
     genre_id = Column(Integer, nullable=False)
     page_number = Column(Integer, nullable=False)
@@ -49,6 +49,8 @@ class VideoProgress(DBBaseModel):
     retry_count = Column(Integer, default=0)
     last_error = Column(Text)
     detail_fetched = Column(Boolean, default=False)
+    movie_id = Column(Integer, nullable=True)  # 新增关联到Movie表的ID字段
+    page_progress_id = Column(Integer, nullable=True)  # 新增关联到PagesProgress表的ID字段
     updated_at = Column(DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     
     def __repr__(self):

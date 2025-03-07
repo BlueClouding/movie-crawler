@@ -111,13 +111,13 @@ class CrawlerManager:
             self._logger.info("Successfully processed movie details, starting actress processing")
             await self._update_status("processing_actresses")
             
-            if not await self._detail_crawler.process_actresses():
-                await self._update_status("failed", "Failed to process actress details")
-                return False
+            # if not await self._detail_crawler.process_actresses():
+            #     await self._update_status("failed", "Failed to process actress details")
+            #     return False
 
-            if self._stop_flag:
-                await self._update_status("stopped")
-                return False
+            # if self._stop_flag:
+            #     await self._update_status("stopped")
+            #     return False
 
             # All done!
             self._logger.info("Successfully completed all crawling tasks")

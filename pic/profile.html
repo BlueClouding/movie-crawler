@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>个人资料 - 视频应用</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+</head>
+<body>
+  <div class="device-container">
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <div class="status-bar-left">
+        <span class="status-bar-time">14:03</span>
+      </div>
+      <div class="status-bar-right">
+        <i class="fas fa-signal mr-2"></i>
+        <i class="fas fa-wifi mr-2"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content">
+      <!-- 标题栏 -->
+      <div class="header">
+        <h1 class="text-xl font-bold">个人资料</h1>
+        <i class="fas fa-cog text-white text-xl"></i>
+      </div>
+      
+      <!-- 个人信息 -->
+      <div class="profile-header">
+        <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Profile" class="profile-avatar">
+        <div class="profile-info">
+          <h2 class="profile-name">张小明</h2>
+          <p class="profile-email">xiaoming@example.com</p>
+          <button class="mt-2 px-3 py-1 bg-gray-800 text-white text-sm rounded">编辑资料</button>
+        </div>
+      </div>
+      
+      <!-- 会员信息 -->
+      <div class="profile-section">
+        <div class="bg-gradient-to-r from-purple-600 to-blue-500 rounded-lg p-4">
+          <div class="flex justify-between items-center">
+            <div>
+              <h3 class="text-lg font-bold mb-1">高级会员</h3>
+              <p class="text-sm text-gray-200">有效期至2026年3月5日</p>
+            </div>
+            <i class="fas fa-crown text-yellow-400 text-3xl"></i>
+          </div>
+          <button class="mt-3 w-full py-2 bg-white text-purple-600 font-semibold rounded">续费会员</button>
+        </div>
+      </div>
+      
+      <!-- 账户设置 -->
+      <div class="profile-section">
+        <h3 class="profile-section-title">账户设置</h3>
+        <div class="space-y-4">
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-user-circle text-gray-400 mr-3 text-xl"></i>
+              <span>账户信息</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-bell text-gray-400 mr-3 text-xl"></i>
+              <span>通知设置</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-download text-gray-400 mr-3 text-xl"></i>
+              <span>下载设置</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-video text-gray-400 mr-3 text-xl"></i>
+              <span>播放设置</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 应用设置 -->
+      <div class="profile-section">
+        <h3 class="profile-section-title">应用设置</h3>
+        <div class="space-y-4">
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-language text-gray-400 mr-3 text-xl"></i>
+              <span>语言</span>
+            </div>
+            <div class="flex items-center">
+              <span class="text-gray-400 mr-2">简体中文</span>
+              <i class="fas fa-chevron-right text-gray-400"></i>
+            </div>
+          </div>
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-moon text-gray-400 mr-3 text-xl"></i>
+              <span>深色模式</span>
+            </div>
+            <div class="relative inline-block w-10 align-middle select-none">
+              <input type="checkbox" name="toggle" id="toggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer checked:right-0 checked:border-green-400" checked />
+              <label for="toggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+            </div>
+          </div>
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-shield-alt text-gray-400 mr-3 text-xl"></i>
+              <span>隐私设置</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 支持与反馈 -->
+      <div class="profile-section">
+        <h3 class="profile-section-title">支持与反馈</h3>
+        <div class="space-y-4">
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-question-circle text-gray-400 mr-3 text-xl"></i>
+              <span>帮助中心</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-comment-alt text-gray-400 mr-3 text-xl"></i>
+              <span>反馈问题</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="profile-item">
+            <div class="flex items-center">
+              <i class="fas fa-info-circle text-gray-400 mr-3 text-xl"></i>
+              <span>关于我们</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 退出登录 -->
+      <div class="p-4">
+        <button class="w-full py-3 bg-gray-800 text-white font-semibold rounded">退出登录</button>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <div class="tab-item">
+        <i class="fas fa-home tab-icon"></i>
+        <span>首页</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-search tab-icon"></i>
+        <span>搜索</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-th-large tab-icon"></i>
+        <span>分类</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-heart tab-icon"></i>
+        <span>我的</span>
+      </div>
+      <div class="tab-item active">
+        <i class="fas fa-user tab-icon"></i>
+        <span>账户</span>
+      </div>
+    </div>
+  </div>
+  
+  <style>
+    .toggle-checkbox:checked + .toggle-label {
+      background-color: #10B981;
+    }
+  </style>
+</body>
+</html>

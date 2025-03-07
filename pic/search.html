@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>搜索 - 视频应用</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+</head>
+<body>
+  <div class="device-container">
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <div class="status-bar-left">
+        <span class="status-bar-time">14:03</span>
+      </div>
+      <div class="status-bar-right">
+        <i class="fas fa-signal mr-2"></i>
+        <i class="fas fa-wifi mr-2"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content">
+      <!-- 搜索栏 -->
+      <div class="px-4 py-3">
+        <div class="search-bar">
+          <i class="fas fa-search text-gray-400"></i>
+          <input type="text" class="search-input" placeholder="搜索电影、电视剧或演员">
+        </div>
+      </div>
+      
+      <!-- 热门搜索 -->
+      <div class="px-4 py-2">
+        <h3 class="text-lg font-semibold mb-3">热门搜索</h3>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <span class="text-gray-400 mr-3">1</span>
+              <span>黑寡妇</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <span class="text-gray-400 mr-3">2</span>
+              <span>洛基</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <span class="text-gray-400 mr-3">3</span>
+              <span>速度与激情9</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <span class="text-gray-400 mr-3">4</span>
+              <span>寂静之地2</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <span class="text-gray-400 mr-3">5</span>
+              <span>猎鹰与冬兵</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 最近搜索 -->
+      <div class="px-4 py-4">
+        <h3 class="text-lg font-semibold mb-3">最近搜索</h3>
+        <div class="flex flex-wrap gap-2">
+          <div class="px-3 py-1 bg-gray-800 rounded-full text-sm">复仇者联盟</div>
+          <div class="px-3 py-1 bg-gray-800 rounded-full text-sm">汤姆·赫兰德</div>
+          <div class="px-3 py-1 bg-gray-800 rounded-full text-sm">科幻电影</div>
+          <div class="px-3 py-1 bg-gray-800 rounded-full text-sm">漫威</div>
+          <div class="px-3 py-1 bg-gray-800 rounded-full text-sm">斯嘉丽·约翰逊</div>
+        </div>
+      </div>
+      
+      <!-- 分类浏览 -->
+      <div class="px-4 py-4">
+        <h3 class="text-lg font-semibold mb-3">分类浏览</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="relative rounded-md overflow-hidden h-24">
+            <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Action" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+              <span class="text-white font-semibold">动作</span>
+            </div>
+          </div>
+          <div class="relative rounded-md overflow-hidden h-24">
+            <img src="https://images.unsplash.com/photo-1485846234645-a62644f84728?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Comedy" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+              <span class="text-white font-semibold">喜剧</span>
+            </div>
+          </div>
+          <div class="relative rounded-md overflow-hidden h-24">
+            <img src="https://images.unsplash.com/photo-1478720568477-152d9b164e26?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Drama" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+              <span class="text-white font-semibold">剧情</span>
+            </div>
+          </div>
+          <div class="relative rounded-md overflow-hidden h-24">
+            <img src="https://images.unsplash.com/photo-1542204165-65bf26472b9b?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Horror" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+              <span class="text-white font-semibold">恐怖</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 推荐搜索 -->
+      <div class="px-4 py-4">
+        <h3 class="text-lg font-semibold mb-3">为您推荐</h3>
+        <div class="row-content pb-4">
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1616530940355-351fabd9524b?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1512113569142-8a60fccc7caa?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <div class="tab-item">
+        <i class="fas fa-home tab-icon"></i>
+        <span>首页</span>
+      </div>
+      <div class="tab-item active">
+        <i class="fas fa-search tab-icon"></i>
+        <span>搜索</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-th-large tab-icon"></i>
+        <span>分类</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-heart tab-icon"></i>
+        <span>我的</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-user tab-icon"></i>
+        <span>账户</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

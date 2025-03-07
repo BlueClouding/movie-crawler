@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频应用原型</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+  <style>
+    body {
+      background-color: #121212;
+      padding: 20px;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    }
+    
+    .prototype-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+      gap: 30px;
+    }
+    
+    .prototype-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: transform 0.3s ease;
+    }
+    
+    .prototype-item:hover {
+      transform: translateY(-5px);
+    }
+    
+    .prototype-label {
+      margin-bottom: 10px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #e50914;
+    }
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #e50914;
+      font-size: 32px;
+      font-weight: bold;
+    }
+    
+    iframe {
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+    
+    .description {
+      max-width: 800px;
+      margin: 0 auto 40px;
+      text-align: center;
+      color: #aaa;
+      line-height: 1.6;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 50px;
+      padding-top: 20px;
+      border-top: 1px solid #333;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>类似网飞的视频应用原型</h1>
+  <div class="description">
+    这是一个高保真视频流媒体应用原型，模拟了类似Netflix的用户界面和体验。
+    包含首页、搜索、分类、详情、播放器、个人资料和我的列表等页面。
+  </div>
+  
+  <div class="prototype-container">
+    <!-- 首页 -->
+    <div class="prototype-item">
+      <div class="prototype-label">首页</div>
+      <iframe src="home.html" width="390" height="844" frameborder="0"></iframe>
+    </div>
+    
+    <!-- 搜索页 -->
+    <div class="prototype-item">
+      <div class="prototype-label">搜索页</div>
+      <iframe src="search.html" width="390" height="844" frameborder="0"></iframe>
+    </div>
+    
+    <!-- 分类页 -->
+    <div class="prototype-item">
+      <div class="prototype-label">分类页</div>
+      <iframe src="categories.html" width="390" height="844" frameborder="0"></iframe>
+    </div>
+    
+    <!-- 详情页 -->
+    <div class="prototype-item">
+      <div class="prototype-label">详情页</div>
+      <iframe src="details.html" width="390" height="844" frameborder="0"></iframe>
+    </div>
+    
+    <!-- 播放页 -->
+    <div class="prototype-item">
+      <div class="prototype-label">播放页</div>
+      <iframe src="player.html" width="390" height="844" frameborder="0"></iframe>
+    </div>
+    
+    <!-- 个人资料页 -->
+    <div class="prototype-item">
+      <div class="prototype-label">个人资料页</div>
+      <iframe src="profile.html" width="390" height="844" frameborder="0"></iframe>
+    </div>
+    
+    <!-- 我的列表页 -->
+    <div class="prototype-item">
+      <div class="prototype-label">我的列表页</div>
+      <iframe src="mylist.html" width="390" height="844" frameborder="0"></iframe>
+    </div>
+  </div>
+  <div class="footer">
+    © 2025 视频应用原型 | 设计与开发
+  </div>
+</body>
+</html>

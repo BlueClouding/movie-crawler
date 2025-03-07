@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分类 - 视频应用</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+</head>
+<body>
+  <div class="device-container">
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <div class="status-bar-left">
+        <span class="status-bar-time">14:03</span>
+      </div>
+      <div class="status-bar-right">
+        <i class="fas fa-signal mr-2"></i>
+        <i class="fas fa-wifi mr-2"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content">
+      <!-- 标题栏 -->
+      <div class="header">
+        <h1 class="text-xl font-bold">分类浏览</h1>
+        <i class="fas fa-sliders-h text-white text-xl"></i>
+      </div>
+      
+      <!-- 分类选项卡 -->
+      <div class="flex px-4 py-2 border-b border-gray-800 overflow-x-auto whitespace-nowrap">
+        <div class="px-4 py-2 font-semibold border-b-2 border-red-600 text-white">电影</div>
+        <div class="px-4 py-2 text-gray-400">电视剧</div>
+        <div class="px-4 py-2 text-gray-400">动画</div>
+        <div class="px-4 py-2 text-gray-400">纪录片</div>
+        <div class="px-4 py-2 text-gray-400">综艺</div>
+      </div>
+      
+      <!-- 分类网格 -->
+      <div class="p-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Action" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">动作</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1485846234645-a62644f84728?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Comedy" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">喜剧</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1478720568477-152d9b164e26?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Drama" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">剧情</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1542204165-65bf26472b9b?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Horror" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">恐怖</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Sci-Fi" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">科幻</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1512113569142-8a60fccc7caa?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Romance" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">爱情</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1559108318-39ed452bb6c9?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Thriller" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">惊悚</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1543536448-d209d2d13a1c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Fantasy" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">奇幻</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1616530940355-351fabd9524b?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Animation" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">动画</span>
+            </div>
+          </div>
+          <div class="category-item">
+            <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Adventure" class="category-image">
+            <div class="category-overlay">
+              <span class="category-name">冒险</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 特色分类 -->
+      <div class="px-4 py-4">
+        <h3 class="text-lg font-semibold mb-3">特色分类</h3>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between p-3 bg-gray-800 rounded-md">
+            <div class="flex items-center">
+              <i class="fas fa-trophy text-yellow-500 mr-3 text-xl"></i>
+              <span>获奖电影</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="flex items-center justify-between p-3 bg-gray-800 rounded-md">
+            <div class="flex items-center">
+              <i class="fas fa-star text-yellow-500 mr-3 text-xl"></i>
+              <span>高分电影</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+          <div class="flex items-center justify-between p-3 bg-gray-800 rounded-md">
+            <div class="flex items-center">
+              <i class="fas fa-globe text-blue-500 mr-3 text-xl"></i>
+              <span>国际电影</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <div class="tab-item">
+        <i class="fas fa-home tab-icon"></i>
+        <span>首页</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-search tab-icon"></i>
+        <span>搜索</span>
+      </div>
+      <div class="tab-item active">
+        <i class="fas fa-th-large tab-icon"></i>
+        <span>分类</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-heart tab-icon"></i>
+        <span>我的</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-user tab-icon"></i>
+        <span>账户</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

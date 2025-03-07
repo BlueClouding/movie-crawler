@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>首页 - 视频应用</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+</head>
+<body>
+  <div class="device-container">
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <div class="status-bar-left">
+        <span class="status-bar-time">14:03</span>
+      </div>
+      <div class="status-bar-right">
+        <i class="fas fa-signal mr-2"></i>
+        <i class="fas fa-wifi mr-2"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content">
+      <!-- 标题栏 -->
+      <div class="header">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Logonetflix.png" alt="Logo" class="logo">
+        <div>
+          <i class="fas fa-bell text-white text-xl mr-4"></i>
+          <i class="fas fa-user-circle text-white text-xl"></i>
+        </div>
+      </div>
+      
+      <!-- 特色内容 -->
+      <div class="row">
+        <div class="relative">
+          <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=1050&q=80" alt="Featured" class="w-full h-64 object-cover">
+          <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent"></div>
+          <div class="absolute bottom-0 left-0 p-4">
+            <h2 class="text-2xl font-bold mb-2">黑寡妇</h2>
+            <div class="flex items-center mb-3">
+              <span class="text-green-500 font-bold mr-2">98% 匹配</span>
+              <span class="text-gray-300 mr-2">2021</span>
+              <span class="border border-gray-300 text-xs px-1 mr-2">16+</span>
+              <span class="text-gray-300">2小时 14分钟</span>
+            </div>
+            <p class="text-gray-300 text-sm mb-3 line-clamp-2">娜塔莎·罗曼诺夫/黑寡妇的独立电影，讲述她在成为复仇者联盟一员前的故事。</p>
+            <div class="flex">
+              <button class="btn btn-primary mr-2">
+                <i class="fas fa-play btn-icon"></i>播放
+              </button>
+              <button class="btn btn-secondary">
+                <i class="fas fa-info-circle btn-icon"></i>详情
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 继续观看 -->
+      <div class="row">
+        <div class="row-header">
+          <h3 class="row-title">继续观看</h3>
+        </div>
+        <div class="row-content">
+          <div class="card">
+            <div class="relative">
+              <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+              <div class="absolute bottom-0 left-0 w-full h-1 bg-gray-600">
+                <div class="bg-red-600 h-full" style="width: 75%;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="relative">
+              <img src="https://images.unsplash.com/photo-1616530940355-351fabd9524b?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+              <div class="absolute bottom-0 left-0 w-full h-1 bg-gray-600">
+                <div class="bg-red-600 h-full" style="width: 30%;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="relative">
+              <img src="https://images.unsplash.com/photo-1512113569142-8a60fccc7caa?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+              <div class="absolute bottom-0 left-0 w-full h-1 bg-gray-600">
+                <div class="bg-red-600 h-full" style="width: 45%;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1485846234645-a62644f84728?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+        </div>
+      </div>
+      
+      <!-- 热门内容 -->
+      <div class="row">
+        <div class="row-header">
+          <h3 class="row-title">热门内容</h3>
+        </div>
+        <div class="row-content">
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1478720568477-152d9b164e26?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1543536448-d209d2d13a1c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1559108318-39ed452bb6c9?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+        </div>
+      </div>
+      
+      <!-- 动作电影 -->
+      <div class="row">
+        <div class="row-header">
+          <h3 class="row-title">动作电影</h3>
+        </div>
+        <div class="row-content">
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1512113569142-8a60fccc7caa?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1485846234645-a62644f84728?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+        </div>
+      </div>
+      
+      <!-- 喜剧电影 -->
+      <div class="row">
+        <div class="row-header">
+          <h3 class="row-title">喜剧电影</h3>
+        </div>
+        <div class="row-content">
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1616530940355-351fabd9524b?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1559108318-39ed452bb6c9?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1543536448-d209d2d13a1c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1478720568477-152d9b164e26?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+          <div class="card">
+            <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="card-poster">
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <div class="tab-item active">
+        <i class="fas fa-home tab-icon"></i>
+        <span>首页</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-search tab-icon"></i>
+        <span>搜索</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-th-large tab-icon"></i>
+        <span>分类</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-heart tab-icon"></i>
+        <span>我的</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-user tab-icon"></i>
+        <span>账户</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

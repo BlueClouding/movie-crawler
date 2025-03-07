@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的列表 - 视频应用</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+</head>
+<body>
+  <div class="device-container">
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <div class="status-bar-left">
+        <span class="status-bar-time">14:03</span>
+      </div>
+      <div class="status-bar-right">
+        <i class="fas fa-signal mr-2"></i>
+        <i class="fas fa-wifi mr-2"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content">
+      <!-- 标题栏 -->
+      <div class="header">
+        <h1 class="text-xl font-bold">我的列表</h1>
+        <div class="flex items-center">
+          <i class="fas fa-search text-white text-xl mr-4"></i>
+          <i class="fas fa-ellipsis-v text-white text-xl"></i>
+        </div>
+      </div>
+      
+      <!-- 分类选项卡 -->
+      <div class="flex px-4 py-2 border-b border-gray-800 overflow-x-auto whitespace-nowrap">
+        <div class="px-4 py-2 font-semibold border-b-2 border-red-600 text-white">全部</div>
+        <div class="px-4 py-2 text-gray-400">电影</div>
+        <div class="px-4 py-2 text-gray-400">电视剧</div>
+        <div class="px-4 py-2 text-gray-400">下载</div>
+      </div>
+      
+      <!-- 列表项 -->
+      <div class="p-4 space-y-4">
+        <!-- 列表项1 -->
+        <div class="flex bg-gray-800 rounded-md overflow-hidden">
+          <div class="w-24 h-32">
+            <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-full object-cover">
+          </div>
+          <div class="flex-1 p-3 flex flex-col justify-between">
+            <div>
+              <h3 class="font-semibold mb-1">黑寡妇</h3>
+              <div class="flex items-center text-xs text-gray-400 mb-2">
+                <span>2021</span>
+                <span class="mx-2">•</span>
+                <span>动作/冒险</span>
+                <span class="mx-2">•</span>
+                <span>2小时14分钟</span>
+              </div>
+              <p class="text-xs text-gray-400 line-clamp-2">娜塔莎·罗曼诺夫/黑寡妇的独立电影，讲述她在成为复仇者联盟一员前的故事。</p>
+            </div>
+            <div class="flex justify-between items-center">
+              <button class="flex items-center text-xs text-white bg-red-600 px-3 py-1 rounded">
+                <i class="fas fa-play mr-1"></i>播放
+              </button>
+              <div class="flex items-center">
+                <i class="fas fa-info-circle text-gray-400 mr-3"></i>
+                <i class="fas fa-trash text-gray-400"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 列表项2 -->
+        <div class="flex bg-gray-800 rounded-md overflow-hidden">
+          <div class="w-24 h-32">
+            <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-full object-cover">
+          </div>
+          <div class="flex-1 p-3 flex flex-col justify-between">
+            <div>
+              <h3 class="font-semibold mb-1">洛基</h3>
+              <div class="flex items-center text-xs text-gray-400 mb-2">
+                <span>2021</span>
+                <span class="mx-2">•</span>
+                <span>科幻/冒险</span>
+                <span class="mx-2">•</span>
+                <span>6集</span>
+              </div>
+              <p class="text-xs text-gray-400 line-clamp-2">在"复仇者联盟：终局之战"的事件之后，洛基被带到神秘的时间变异管理局。</p>
+            </div>
+            <div class="flex justify-between items-center">
+              <button class="flex items-center text-xs text-white bg-red-600 px-3 py-1 rounded">
+                <i class="fas fa-play mr-1"></i>播放
+              </button>
+              <div class="flex items-center">
+                <i class="fas fa-info-circle text-gray-400 mr-3"></i>
+                <i class="fas fa-trash text-gray-400"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 列表项3 -->
+        <div class="flex bg-gray-800 rounded-md overflow-hidden">
+          <div class="w-24 h-32">
+            <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-full object-cover">
+          </div>
+          <div class="flex-1 p-3 flex flex-col justify-between">
+            <div>
+              <h3 class="font-semibold mb-1">猎鹰与冬兵</h3>
+              <div class="flex items-center text-xs text-gray-400 mb-2">
+                <span>2021</span>
+                <span class="mx-2">•</span>
+                <span>动作/冒险</span>
+                <span class="mx-2">•</span>
+                <span>6集</span>
+              </div>
+              <p class="text-xs text-gray-400 line-clamp-2">山姆·威尔逊和巴基·巴恩斯在史蒂夫·罗杰斯离开后继续他们的冒险。</p>
+            </div>
+            <div class="flex justify-between items-center">
+              <button class="flex items-center text-xs text-white bg-red-600 px-3 py-1 rounded">
+                <i class="fas fa-play mr-1"></i>播放
+              </button>
+              <div class="flex items-center">
+                <i class="fas fa-info-circle text-gray-400 mr-3"></i>
+                <i class="fas fa-trash text-gray-400"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 列表项4 -->
+        <div class="flex bg-gray-800 rounded-md overflow-hidden">
+          <div class="w-24 h-32">
+            <img src="https://images.unsplash.com/photo-1512113569142-8a60fccc7caa?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-full object-cover">
+          </div>
+          <div class="flex-1 p-3 flex flex-col justify-between">
+            <div>
+              <h3 class="font-semibold mb-1">旺达幻视</h3>
+              <div class="flex items-center text-xs text-gray-400 mb-2">
+                <span>2021</span>
+                <span class="mx-2">•</span>
+                <span>科幻/剧情</span>
+                <span class="mx-2">•</span>
+                <span>9集</span>
+              </div>
+              <p class="text-xs text-gray-400 line-clamp-2">旺达和幻视过着理想化的郊区生活，但他们很快就开始怀疑一切并非表面看起来那么简单。</p>
+            </div>
+            <div class="flex justify-between items-center">
+              <button class="flex items-center text-xs text-white bg-red-600 px-3 py-1 rounded">
+                <i class="fas fa-play mr-1"></i>播放
+              </button>
+              <div class="flex items-center">
+                <i class="fas fa-info-circle text-gray-400 mr-3"></i>
+                <i class="fas fa-trash text-gray-400"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 列表项5 -->
+        <div class="flex bg-gray-800 rounded-md overflow-hidden">
+          <div class="w-24 h-32">
+            <img src="https://images.unsplash.com/photo-1485846234645-a62644f84728?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-full object-cover">
+          </div>
+          <div class="flex-1 p-3 flex flex-col justify-between">
+            <div>
+              <h3 class="font-semibold mb-1">速度与激情9</h3>
+              <div class="flex items-center text-xs text-gray-400 mb-2">
+                <span>2021</span>
+                <span class="mx-2">•</span>
+                <span>动作/冒险</span>
+                <span class="mx-2">•</span>
+                <span>2小时25分钟</span>
+              </div>
+              <p class="text-xs text-gray-400 line-clamp-2">唐老大必须面对他的过去，与他疏远的弟弟雅各布对抗，雅各布正在寻求报复。</p>
+            </div>
+            <div class="flex justify-between items-center">
+              <button class="flex items-center text-xs text-white bg-red-600 px-3 py-1 rounded">
+                <i class="fas fa-play mr-1"></i>播放
+              </button>
+              <div class="flex items-center">
+                <i class="fas fa-info-circle text-gray-400 mr-3"></i>
+                <i class="fas fa-trash text-gray-400"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 下载管理 -->
+      <div class="p-4 border-t border-gray-800">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="font-semibold">下载管理</h3>
+          <button class="text-xs text-gray-400">查看全部</button>
+        </div>
+        <div class="bg-gray-800 rounded-md p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center">
+              <i class="fas fa-download text-blue-500 mr-2"></i>
+              <span class="text-sm">2个下载中</span>
+            </div>
+            <button class="text-xs text-gray-400">管理</button>
+          </div>
+          <div class="space-y-3">
+            <div class="flex items-center">
+              <img src="https://images.unsplash.com/photo-1559108318-39ed452bb6c9?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Download" class="w-10 h-10 object-cover rounded mr-3">
+              <div class="flex-1">
+                <div class="flex justify-between">
+                  <span class="text-sm">寂静之地2</span>
+                  <span class="text-xs text-gray-400">75%</span>
+                </div>
+                <div class="w-full h-1 bg-gray-600 rounded-full mt-1">
+                  <div class="h-full bg-blue-500 rounded-full" style="width: 75%;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <img src="https://images.unsplash.com/photo-1543536448-d209d2d13a1c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Download" class="w-10 h-10 object-cover rounded mr-3">
+              <div class="flex-1">
+                <div class="flex justify-between">
+                  <span class="text-sm">永恒族</span>
+                  <span class="text-xs text-gray-400">32%</span>
+                </div>
+                <div class="w-full h-1 bg-gray-600 rounded-full mt-1">
+                  <div class="h-full bg-blue-500 rounded-full" style="width: 32%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <div class="tab-item">
+        <i class="fas fa-home tab-icon"></i>
+        <span>首页</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-search tab-icon"></i>
+        <span>搜索</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-th-large tab-icon"></i>
+        <span>分类</span>
+      </div>
+      <div class="tab-item active">
+        <i class="fas fa-heart tab-icon"></i>
+        <span>我的</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-user tab-icon"></i>
+        <span>账户</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

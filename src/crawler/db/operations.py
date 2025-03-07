@@ -3,9 +3,12 @@
 import logging
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, insert
+from sqlalchemy import func, select, update, delete, insert
 from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
-from app.db.entity.movie import Movie, MovieGenre, Genre, Actress, MovieActress
+from app.db.entity.movie import Movie
+from app.db.entity.genre import Genre
+from app.db.entity.movie_actress import MovieActress
+from app.db.entity.movie_genres import MovieGenre
 
 class DBOperations:
     """Database operations for crawler."""
@@ -163,6 +166,7 @@ class DBOperations:
                     code=movie_data.get('code'),
                     thumbnail=movie_data.get('thumbnail'),
                     release_date=movie_data.get('release_date'),
+                    page_progress_id=movie_data.get('page_progress_id'),
                     status='pending'
                 )
             )
@@ -173,70 +177,6 @@ class DBOperations:
             self._logger.error(f"Error saving movie: {str(e)}")
             return False
     
-    async def save_movie_details(self, movie_data: Dict[str, Any]) -> Optional[Movie]:
-        """Save detailed movie data to the database.
-        
-        Args:
-            movie_data: Movie data dictionary
-            
-        Returns:
-            Optional[Movie]: Created movie record
-        """
-        if not movie_data or not movie_data.get('code'):
-            return None
-            
-        try:
-            # Check if movie already exists
-            result = await self._session.execute(
-                select(Movie).where(Movie.code == movie_data['code'])
-            )
-            existing_movie = result.scalar_one_or_none()
-            
-            if existing_movie:
-                # Update existing movie
-                await self._session.execute(
-                    update(Movie)
-                    .where(Movie.code == movie_data['code'])
-                    .values(
-                        title=movie_data.get('title', existing_movie.title),
-                        url=movie_data.get('url', existing_movie.url),
-                        cover_image=movie_data.get('cover_image', existing_movie.cover_image),
-                        release_date=movie_data.get('release_date', existing_movie.release_date),
-                        duration=movie_data.get('duration', existing_movie.duration),
-                        description=movie_data.get('description', existing_movie.description)
-                    )
-                )
-                movie = existing_movie
-            else:
-                # Create new movie
-                movie = Movie(
-                    code=movie_data['code'],
-                    title=movie_data.get('title', ''),
-                    url=movie_data.get('url', ''),
-                    cover_image=movie_data.get('cover_image', ''),
-                    release_date=movie_data.get('release_date', ''),
-                    duration=movie_data.get('duration', ''),
-                    description=movie_data.get('description', '')
-                )
-                self._session.add(movie)
-            
-            await self._session.commit()
-            await self._session.refresh(movie)
-            
-            # Save genres
-            if movie_data.get('genres'):
-                await self._save_movie_genres(movie.id, movie_data['genres'])
-                
-            # Save actresses
-            if movie_data.get('actresses'):
-                await self._save_movie_actresses(movie.id, movie_data['actresses'])
-                
-            return movie
-            
-        except Exception as e:
-            await self._session.rollback()
-            self._logger.error(f"Error saving movie details: {str(e)}")
-            return None
     
     async def _save_movie_genres(self, movie_id: int, genres: List[str]) -> bool:
         """Save movie genres.
@@ -326,4 +266,74 @@ class DBOperations:
         except Exception as e:
             await self._session.rollback()
             self._logger.error(f"Error saving movie actresses: {str(e)}")
+            return False
+
+
+    async def saveOrUpdate(self, movie_details: Dict[str, Any]) -> bool:
+        """Save or update movie details to the database.
+        
+        Args:   
+            movie_details: Movie details dictionary
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """ 
+        try:    
+            # Check if movie already exists
+            result = await self._session.execute(
+                select(Movie).where(Movie.code == movie_details['code']))
+            existing_movie = result.scalar_one_or_none()
+            
+            if existing_movie:
+                # Update existing movie                
+                await self._session.execute(
+                    update(Movie)
+                    .where(Movie.code == movie_details['code'])
+                    .values(
+                        title=movie_details.get('title', existing_movie.title),
+                        link=movie_details.get('url', existing_movie.link),
+                        cover_image_url=movie_details.get('cover_image', existing_movie.cover_image_url),
+                        preview_video_url=movie_details.get('preview_video', existing_movie.preview_video_url),
+                        thumbnail=movie_details.get('thumbnail', existing_movie.thumbnail),
+                        likes=movie_details.get('likes', existing_movie.likes),
+                        original_id=movie_details.get('original_id', existing_movie.original_id),
+                        status=movie_details.get('status', existing_movie.status),
+                        code=movie_details.get('code', existing_movie.code),
+                        release_date=movie_details.get('release_date', existing_movie.release_date),
+                        duration=movie_details.get('duration', existing_movie.duration),
+                        description=movie_details.get('description', existing_movie.description),
+                        updated_at=func.current_timestamp()
+                    )
+                )
+                success = True
+            else:
+                # Create new movie
+                movie = Movie(
+                    code=movie_details['code'],
+                    title=movie_details.get('title', ''),
+                    link=movie_details.get('url', ''),
+                    cover_image_url=movie_details.get('cover_image', ''),
+                    preview_video_url=movie_details.get('preview_video', ''),
+                    thumbnail=movie_details.get('thumbnail', ''),
+                    likes=movie_details.get('likes', 0),
+                    original_id=movie_details.get('original_id', 0),
+                    status=movie_details.get('status', 'new'),
+                    release_date=movie_details.get('release_date', ''),
+                    duration=movie_details.get('duration', ''),
+                    description=movie_details.get('description', ''),
+                    updated_at=func.current_timestamp()
+                )
+                self._session.add(movie)
+                success = True
+                
+            if success:
+                await self._session.commit()
+                return True
+                
+        except Exception as e:
+            self._logger.error(f"Error saving or updating movie: {str(e)}")
+            try:
+                await self._session.rollback()
+            except Exception as rollback_error:
+                self._logger.error(f"Error during rollback: {str(rollback_error)}")
             return False

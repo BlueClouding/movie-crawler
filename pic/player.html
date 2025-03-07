@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>播放 - 视频应用</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/main.js"></script>
+</head>
+<body>
+  <div class="device-container">
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <div class="status-bar-left">
+        <span class="status-bar-time">14:03</span>
+      </div>
+      <div class="status-bar-right">
+        <i class="fas fa-signal mr-2"></i>
+        <i class="fas fa-wifi mr-2"></i>
+        <i class="fas fa-battery-full"></i>
+      </div>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content">
+      <!-- 播放器 -->
+      <div class="relative w-full h-56 bg-black">
+        <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=1050&q=80" alt="Video" class="w-full h-full object-cover">
+        
+        <!-- 播放控制 -->
+        <div class="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center">
+          <div class="text-center">
+            <div class="w-16 h-16 rounded-full bg-white bg-opacity-30 flex items-center justify-center mx-auto mb-4">
+              <i class="fas fa-pause text-white text-2xl"></i>
+            </div>
+            <div class="text-white text-sm">已暂停</div>
+          </div>
+        </div>
+        
+        <!-- 顶部控制栏 -->
+        <div class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
+          <button class="text-white">
+            <i class="fas fa-arrow-left"></i>
+          </button>
+          <div class="text-white text-sm font-semibold">黑寡妇</div>
+          <button class="text-white">
+            <i class="fas fa-ellipsis-v"></i>
+          </button>
+        </div>
+        
+        <!-- 底部控制栏 -->
+        <div class="absolute bottom-0 left-0 right-0 p-4">
+          <!-- 进度条 -->
+          <div class="relative w-full h-1 bg-gray-600 mb-3">
+            <div class="absolute left-0 top-0 h-full bg-red-600" style="width: 35%;"></div>
+            <div class="absolute w-3 h-3 bg-red-600 rounded-full -mt-1" style="left: 35%;"></div>
+          </div>
+          
+          <!-- 控制按钮 -->
+          <div class="flex justify-between items-center">
+            <div class="text-white text-xs">00:32:45</div>
+            <div class="flex items-center">
+              <button class="text-white mx-4">
+                <i class="fas fa-backward"></i>
+              </button>
+              <button class="text-white mx-4">
+                <i class="fas fa-pause"></i>
+              </button>
+              <button class="text-white mx-4">
+                <i class="fas fa-forward"></i>
+              </button>
+            </div>
+            <div class="text-white text-xs">01:34:10</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 视频信息 -->
+      <div class="p-4">
+        <h1 class="text-xl font-bold mb-1">黑寡妇</h1>
+        <div class="flex items-center text-sm text-gray-400 mb-4">
+          <span>2021</span>
+          <span class="mx-2">•</span>
+          <span>2小时 14分钟</span>
+          <span class="mx-2">•</span>
+          <span>16+</span>
+        </div>
+        
+        <!-- 操作按钮 -->
+        <div class="flex justify-between mb-6">
+          <button class="flex flex-col items-center">
+            <div class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center mb-1">
+              <i class="fas fa-plus text-white"></i>
+            </div>
+            <span class="text-xs text-gray-400">我的列表</span>
+          </button>
+          <button class="flex flex-col items-center">
+            <div class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center mb-1">
+              <i class="fas fa-thumbs-up text-white"></i>
+            </div>
+            <span class="text-xs text-gray-400">喜欢</span>
+          </button>
+          <button class="flex flex-col items-center">
+            <div class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center mb-1">
+              <i class="fas fa-share text-white"></i>
+            </div>
+            <span class="text-xs text-gray-400">分享</span>
+          </button>
+          <button class="flex flex-col items-center">
+            <div class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center mb-1">
+              <i class="fas fa-download text-white"></i>
+            </div>
+            <span class="text-xs text-gray-400">下载</span>
+          </button>
+        </div>
+        
+        <!-- 剧集选择 -->
+        <div class="mb-6">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="font-semibold">剧集与信息</h3>
+            <div class="flex items-center text-sm text-gray-400">
+              <span>第1季</span>
+              <i class="fas fa-chevron-down ml-2"></i>
+            </div>
+          </div>
+          
+          <!-- 剧集列表 -->
+          <div class="space-y-3">
+            <div class="flex p-2 bg-gray-800 rounded">
+              <div class="w-24 h-16 mr-3">
+                <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Episode" class="w-full h-full object-cover rounded">
+              </div>
+              <div class="flex-1">
+                <div class="flex justify-between">
+                  <span class="font-semibold">1. 第一集</span>
+                  <span class="text-sm text-gray-400">45分钟</span>
+                </div>
+                <p class="text-sm text-gray-400 line-clamp-2 mt-1">娜塔莎被迫面对她作为间谍的黑暗过去，以及在成为复仇者之前留下的破碎关系。</p>
+              </div>
+            </div>
+            
+            <div class="flex p-2 rounded">
+              <div class="w-24 h-16 mr-3">
+                <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Episode" class="w-full h-full object-cover rounded">
+              </div>
+              <div class="flex-1">
+                <div class="flex justify-between">
+                  <span class="font-semibold">2. 第二集</span>
+                  <span class="text-sm text-gray-400">42分钟</span>
+                </div>
+                <p class="text-sm text-gray-400 line-clamp-2 mt-1">娜塔莎与她的"妹妹"叶莲娜重聚，共同对抗一个强大的新敌人。</p>
+              </div>
+            </div>
+            
+            <div class="flex p-2 rounded">
+              <div class="w-24 h-16 mr-3">
+                <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Episode" class="w-full h-full object-cover rounded">
+              </div>
+              <div class="flex-1">
+                <div class="flex justify-between">
+                  <span class="font-semibold">3. 第三集</span>
+                  <span class="text-sm text-gray-400">47分钟</span>
+                </div>
+                <p class="text-sm text-gray-400 line-clamp-2 mt-1">为了摧毁红房子，娜塔莎必须与她的"家人"重聚并面对她的过去。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 相关推荐 -->
+        <div>
+          <h3 class="font-semibold mb-3">更多相似内容</h3>
+          <div class="grid grid-cols-3 gap-2">
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+            <div class="card">
+              <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80" alt="Movie" class="w-full h-36 object-cover rounded">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <div class="tab-item">
+        <i class="fas fa-home tab-icon"></i>
+        <span>首页</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-search tab-icon"></i>
+        <span>搜索</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-th-large tab-icon"></i>
+        <span>分类</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-heart tab-icon"></i>
+        <span>我的</span>
+      </div>
+      <div class="tab-item">
+        <i class="fas fa-user tab-icon"></i>
+        <span>账户</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

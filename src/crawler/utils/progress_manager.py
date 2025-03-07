@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, insert
 from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
 from app.repositories.genre_repository import GenreRepository
+from app.db.entity.movie import Movie,MovieStatus
+from app.db.entity.enums import CrawlerStatus
 
 class DBProgressManager:
     """Database progress manager."""
@@ -71,7 +73,8 @@ class DBProgressManager:
             self._logger.error(f"Error getting genre progress: {str(e)}")
             return 0
 
-    async def update_genre_progress(self, genre_id: int, page: int, total_pages: int, code: str = None):
+    #返回值为最新的genre_progress 的 id
+    async def update_genre_progress(self, genre_id: int, page: int, total_pages: int, code: str = None, status: str = None, total_items: int = None):
         """Update progress for a genre.
 
         Args:
@@ -79,6 +82,8 @@ class DBProgressManager:
             page: Current page number
             total_pages: Total number of pages
             code: Optional code of the genre
+            status: Optional status of the genre
+            total_items: Optional total number of items
         """
         if not self._session:
             return
@@ -106,7 +111,7 @@ class DBProgressManager:
                 )
             )
             page_progress = result.scalars().first()
-            
+
             if page_progress:
                 # Update existing progress
                 await self._session.execute(
@@ -115,7 +120,8 @@ class DBProgressManager:
                     .values(
                         page_number=page,
                         total_pages=total_pages,
-                        status='completed' if page >= total_pages else 'processing'
+                        total_items=total_items,
+                        status=status
                     )
                 )
             else:
@@ -126,87 +132,17 @@ class DBProgressManager:
                     page_type='genre',
                     page_number=page,
                     total_pages=total_pages,
-                    status='completed' if page >= total_pages else 'processing'
+                    total_items=total_items,
+                    status=status
                 )
                 self._session.add(page_progress)
                 
             await self._session.commit()
+            return page_progress.id
         except Exception as e:
             await self._session.rollback()
             self._logger.error(f"Error updating genre progress: {str(e)}")
 
-    async def get_detail_progress(self, genre_id: int) -> int:
-        """Get the number of processed movies for a genre.
-
-        Args:
-            genre_id (int): ID of the genre
-
-        Returns:
-            int: Number of processed movies
-        """
-        if not self._crawler_progress:
-            return 0
-
-        try:
-            page_progress = await self._crawler_db.get_pages_progress(
-                self._crawler_progress.id,
-                genre_id
-            )
-            return page_progress.processed_items if page_progress else 0
-        except Exception as e:
-            self._logger.error(f"Error getting detail progress: {str(e)}")
-            return 0
-
-    async def update_detail_progress(self, genre_id: int, processed: int, total: int):
-        """Update the number of processed movies for a genre.
-
-        Args:
-            genre_id (int): ID of the genre
-            processed (int): Number of processed movies
-            total (int): Total number of movies
-        """
-        if not self._crawler_progress:
-            return
-
-        try:
-            await self._crawler_db.update_pages_progress(
-                self._crawler_progress.id,
-                genre_id,
-                processed_items=processed,
-                total_items=total
-            )
-        except Exception as e:
-            self._logger.error(f"Error updating detail progress: {str(e)}")
-
-    async def is_genre_completed(self, genre_id: int) -> bool:
-        """Check if a genre is completed.
-
-        Args:
-            genre_id (int): ID of the genre
-
-        Returns:
-            bool: True if genre is completed
-        """
-        if not self._crawler_progress:
-            return False
-
-        try:
-            page_progress = await self._crawler_db.get_pages_progress(
-                self._crawler_progress.id,
-                genre_id
-            )
-            if not page_progress:
-                return False
-                
-            return (
-                page_progress.status == "completed" or
-                (page_progress.page_number >= page_progress.total_pages and
-                 page_progress.processed_items >= page_progress.total_items)
-            )
-        except Exception as e:
-            self._logger.error(f"Error checking genre completion: {str(e)}")
-            return False
-            
     async def update_task_status(self, task_id: int, status: str, message: Optional[str] = None):
         """Update task status.
         
@@ -259,16 +195,17 @@ class DBProgressManager:
                 return
                 
             # 从 URL 中提取电影代码
-            code = ''
-            import re
-            code_match = re.search(r'/([A-Z]+-\d+)', movie_data.get('url', ''))
-            if code_match:
-                code = code_match.group(1)
-            else:
-                # 如果无法从 URL 提取代码，尝试使用 URL 的最后一部分
-                path_parts = movie_data.get('url', '').split('/')
-                if path_parts and path_parts[-1]:
-                    code = path_parts[-1]
+            code = movie_data.get('code', '')
+            if not code:
+                import re
+                code_match = re.search(r'/([A-Z]+-\d+)', movie_data.get('url', ''))
+                if code_match:
+                    code = code_match.group(1)
+                else:
+                    # 如果无法从 URL 提取代码，尝试使用 URL 的最后一部分
+                    path_parts = movie_data.get('url', '').split('/')
+                    if path_parts and path_parts[-1]:
+                        code = path_parts[-1]
             
             # 处理缺失的标题
             title = movie_data.get('title', '')
@@ -276,7 +213,31 @@ class DBProgressManager:
                 # 如果标题为空，使用代码作为标题
                 title = code
             
-            # Insert movie data into the database
+            # 获取其他电影信息
+            link = movie_data.get('link', '')
+            original_id = movie_data.get('id', None)  # 从movie_data中获取原始ID
+            duration = movie_data.get('duration', '00:00:00')
+            thumbnail = movie_data.get('thumbnail', '')
+            
+            # 构建Movie表的插入数据
+            movie_insert = insert(Movie).values(
+                code=code,
+                title=title,
+                duration=duration,
+                thumbnail=thumbnail,  # 使用新的thumbnail字段
+                link=link,
+                original_id=int(original_id),
+                release_date='',
+                status =MovieStatus.NEW.value,
+            )
+            
+            # 执行插入并获取返回的ID
+            result = await self._session.execute(movie_insert)
+            movie_id = result.inserted_primary_key[0]
+            
+            self._logger.info(f"Inserted into Movie table with ID: {movie_id}")
+            
+            # 然后插入到VideoProgress表
             await self._session.execute(
                 insert(VideoProgress).values(
                     crawler_progress_id=self._task_id,
@@ -284,11 +245,15 @@ class DBProgressManager:
                     page_number=movie_data['page_number'],
                     title=title,
                     url=movie_data['url'],
-                    code=code
+                    code=code,
+                    movie_id=movie_id,
+                    status=CrawlerStatus.PENDING.value,
+                    page_progress_id=movie_data['page_progress_id']
                 )
             )
+            
             await self._session.commit()
-            self._logger.info(f"Saved movie: {title} ({code})")
+            self._logger.info(f"Saved movie: {title} ({code}) with movie_id: {movie_id}")
         except Exception as e:
             await self._session.rollback()
             self._logger.error(f"Error saving movie: {str(e)}")
@@ -330,7 +295,8 @@ class DBProgressManager:
                     "page_number": movie.page_number,
                     "title": movie.title,
                     "status": movie.status,
-                    "retry_count": movie.retry_count
+                    "retry_count": movie.retry_count,
+                    "original_id": movie.movie_id
                 })
                 
             self._logger.info(f"Found {len(movie_list)} pending movies")
@@ -339,6 +305,7 @@ class DBProgressManager:
             self._logger.error(f"Error getting pending movies: {str(e)}")
             return []
             
+    #增加更新page_progress
     async def update_movie_status(self, movie_id: int, status: str, error: str = None):
         """更新电影的处理状态。
         
@@ -347,7 +314,7 @@ class DBProgressManager:
             status: 新状态，如 'completed', 'error', 'pending'
             error: 错误信息（如果有）
         """
-        if not self._session or not movie_id:
+        if not movie_id:
             return
             
         try:
@@ -356,7 +323,7 @@ class DBProgressManager:
                 "status": status
             }
             
-            # 如果状态为“completed”，设置detail_fetched为True
+            # 如果状态为"completed"，设置detail_fetched为True
             if status == "completed":
                 update_data["detail_fetched"] = True
                 
@@ -365,17 +332,91 @@ class DBProgressManager:
                 update_data["last_error"] = error
                 update_data["retry_count"] = VideoProgress.retry_count + 1
             
-            # 执行更新
-            await self._session.execute(
-                update(VideoProgress)
-                .where(VideoProgress.id == movie_id)
-                .values(**update_data)
-            )
-            await self._session.commit()
+            # 使用独立的会话执行更新操作，避免并发操作冲突
+            from src.crawler.db.connection import get_db_session
             
-            self._logger.info(f"Updated movie {movie_id} status to {status}")
+            # 获取新的数据库会话
+            isolated_session = await get_db_session()
+            if not isolated_session:
+                self._logger.error(f"Failed to get isolated session for movie {movie_id}")
+                return
+                
+            try:
+                # 首先获取电影记录，以获取page_progress_id
+                video_result = await isolated_session.execute(
+                    select(VideoProgress).where(VideoProgress.movie_id == movie_id)
+                )
+                video_progress = video_result.scalar_one_or_none()
+                
+                if not video_progress:
+                    self._logger.error(f"Video progress not found for movie_id {movie_id}")
+                    return
+                    
+                page_progress_id = video_progress.page_progress_id
+                
+                # 使用独立会话执行更新
+                await isolated_session.execute(
+                    update(VideoProgress)
+                    .where(VideoProgress.movie_id == movie_id)
+                    .values(**update_data)
+                )
+                
+                # 如果状态为已完成，检查并更新对应的pages_progress记录
+                if status == "completed" and page_progress_id:
+                    # 获取页面进度记录
+                    page_result = await isolated_session.execute(
+                        select(PagesProgress).where(PagesProgress.id == page_progress_id)
+                    )
+                    page_progress = page_result.scalar_one_or_none()
+                    
+                    if page_progress:
+                        # 获取当前页面已完成的电影数量
+                        count_result = await isolated_session.execute(
+                            select(func.count())
+                            .select_from(VideoProgress)
+                            .where(
+                                VideoProgress.page_progress_id == page_progress_id,
+                                VideoProgress.status == "completed"
+                            )
+                        )
+                        completed_count = count_result.scalar_one()
+                        
+                        # 获取当前页面的总电影数量
+                        total_count_result = await isolated_session.execute(
+                            select(func.count())
+                            .select_from(VideoProgress)
+                            .where(VideoProgress.page_progress_id == page_progress_id)
+                        )
+                        total_count = total_count_result.scalar_one()
+                        
+                        # 更新页面进度记录
+                        page_update_data = {
+                            "processed_items": completed_count,
+                            "total_items": total_count
+                        }
+                        
+                        # 如果已完成的电影数量等于总数，则将页面状态设置为已完成
+                        if completed_count >= total_count:
+                            page_update_data["status"] = "completed"
+                            self._logger.info(f"All movies for page_progress_id {page_progress_id} have been completed")
+                        
+                        await isolated_session.execute(
+                            update(PagesProgress)
+                            .where(PagesProgress.id == page_progress_id)
+                            .values(**page_update_data)
+                        )
+                
+                await isolated_session.commit()
+                self._logger.info(f"Updated movie {movie_id} status to {status}")
+            except Exception as session_error:
+                # 处理独立会话的错误
+                await isolated_session.rollback()
+                self._logger.error(f"Error in isolated session: {str(session_error)}")
+                raise session_error
+            finally:
+                # 确保关闭独立会话
+                await isolated_session.close()
         except Exception as e:
-            await self._session.rollback()
             self._logger.error(f"Error updating movie status: {str(e)}")
             
     async def get_actresses_to_process(self, limit: int = 50):
@@ -429,3 +470,20 @@ class DBProgressManager:
         except Exception as e:
             self._logger.error(f"Error getting actresses to process: {str(e)}")
             return []
+
+
+#通过page_progress_id表获 video_progress已经处理的电影总量
+    async def get_processed_movies_count(self, page_progress_id: int) -> int:
+        if not self._session:
+            return 0
+            
+        try:    
+            result = await self._session.execute(
+                select(VideoProgress)
+                .where(VideoProgress.page_progress_id == page_progress_id)
+                .where(VideoProgress.status == 'completed')
+            )
+            return result.scalar()
+        except Exception as e:
+            self._logger.error(f"Error getting processed movies count: {str(e)}")
+            return 0

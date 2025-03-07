@@ -5,11 +5,17 @@ CREATE TYPE supported_language AS ENUM ('en', 'ja', 'zh');
 CREATE TABLE movies (
     id SERIAL PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,
-    duration INTERVAL NOT NULL,
-    release_date DATE NOT NULL,
+    title TEXT,
+    duration VARCHAR(50) NOT NULL,
+    release_date VARCHAR(50) NOT NULL,
     cover_image_url TEXT,
     preview_video_url TEXT,
+    thumbnail TEXT,
     likes INTEGER DEFAULT 0,
+    link VARCHAR(255),
+    original_id INTEGER,
+    status VARCHAR(20) DEFAULT 'new' NOT NULL,
+    description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -141,7 +147,7 @@ CREATE TABLE IF NOT EXISTS pages_progress (
     page_type VARCHAR(50) NOT NULL,
     page_number INTEGER NOT NULL,
     total_pages INTEGER NOT NULL,
-    total_items INTEGER DEFAULT 0,
+    total_items INTEGER NOT NULL,
     processed_items INTEGER DEFAULT 0,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     last_update TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -161,6 +167,9 @@ CREATE TABLE IF NOT EXISTS video_progress (
     retry_count INTEGER DEFAULT 0,
     last_error TEXT,
     detail_fetched BOOLEAN DEFAULT FALSE,
+    movie_id INTEGER,
+    crawler_progress_id INTEGER NOT NULL,
+    page_progress_id INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(code, genre_id)
