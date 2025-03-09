@@ -42,35 +42,55 @@ class DBProgressManager:
             int: Last processed page number, 0 if not started
         """
         if not self._session:
+            self._logger.error("Database session is not initialized")
             return 0
             
         try:
-            # 如果提供了 code，则尝试使用 code 查询
-            if code:
+            # Use a nested transaction for read operations to ensure proper async context
+            async with self._session.begin_nested() as nested_transaction:
                 try:
-                    # 查询 genres 表中是否有匹配的 code
-                    db_genre = await self._genre_repository.get_by_code(self._session, code=code)
-                    if db_genre:
-                        # 如果找到了匹配的 genre，则使用其 ID 查询进度
-                        self._logger.info(f"Found genre with code {code}, id: {db_genre.id}")
-                        genre_id = db_genre.id
-                except Exception as e:
-                    self._logger.error(f"Error querying genre by code: {str(e)}")
-            
-            # 使用 genre_id 查询进度
-            result = await self._session.execute(
-                select(PagesProgress)
-                .filter(
-                    PagesProgress.relation_id == genre_id,
-                    PagesProgress.page_type == 'genre'
-                )
-                .order_by(PagesProgress.page_number.desc())
-                .limit(1)
-            )
-            page_progress = result.scalars().first()
-            return page_progress.page_number if page_progress else 0
+                    # If code is provided, try to get genre by code
+                    if code:
+                        try:
+                            # Query genres table for the matching code
+                            db_genre = await self._genre_repository.get_by_code(self._session, code=code)
+                            if db_genre:
+                                # If found matching genre, use its ID for progress lookup
+                                self._logger.info(f"Found genre with code {code}, id: {db_genre.id}")
+                                genre_id = db_genre.id
+                        except Exception as code_error:
+                            self._logger.error(f"Error querying genre by code: {str(code_error)}")
+                            # Continue with provided genre_id if code lookup fails
+                    
+                    # Query progress using genre_id
+                    result = await self._session.execute(
+                        select(PagesProgress)
+                        .filter(
+                            PagesProgress.relation_id == genre_id,
+                            PagesProgress.page_type == 'genre',
+                            PagesProgress.crawler_progress_id == self._task_id
+                        )
+                        .order_by(PagesProgress.page_number.desc())
+                        .limit(1)
+                    )
+                    page_progress = result.scalars().first()
+                    
+                    # Return page number if found, otherwise 0
+                    if page_progress:
+                        self._logger.info(f"Found progress for genre {genre_id}: page {page_progress.page_number}/{page_progress.total_pages}")
+                        return page_progress.page_number
+                    else:
+                        self._logger.info(f"No progress found for genre {genre_id}, starting from page 0")
+                        return 0
+                except Exception as inner_error:
+                    self._logger.error(f"Error in nested transaction: {str(inner_error)}")
+                    raise
         except Exception as e:
             self._logger.error(f"Error getting genre progress: {str(e)}")
+            try:
+                await self._session.rollback()
+            except Exception as rollback_error:
+                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
             return 0
 
     #返回值为最新的genre_progress 的 id
@@ -114,15 +134,24 @@ class DBProgressManager:
 
             if page_progress:
                 # Update existing progress
+                update_values = {
+                    "page_number": page,
+                    "total_pages": total_pages,
+                    "status": status
+                }
+                # Conditionally add total_items to update_values only if it's not None
+                if total_items is not None:
+                    update_values["total_items"] = total_items
+
+                if status is not None:
+                    update_values["status"] = status
+
+
+                # Update the progress record
                 await self._session.execute(
                     update(PagesProgress)
                     .where(PagesProgress.id == page_progress.id)
-                    .values(
-                        page_number=page,
-                        total_pages=total_pages,
-                        total_items=total_items,
-                        status=status
-                    )
+                    .values(**update_values) # 使用 **kwargs 展开字典
                 )
             else:
                 # Create new progress
@@ -143,6 +172,113 @@ class DBProgressManager:
             await self._session.rollback()
             self._logger.error(f"Error updating genre progress: {str(e)}")
 
+    async def create_genre_progress(self, genre_id: int, page: int, total_pages: int, code: str = None, status: str = None, total_items: int = None):
+        """Create new progress for a genre.
+
+        Args:
+            genre_id: ID of the genre
+            page: Current page number
+            total_pages: Total number of pages
+            code: Optional code of the genre (may be used for logging or future lookups)
+            status: Optional status of the genre
+            total_items: Optional total number of items
+            
+        Returns:
+            int: ID of the created progress record, or None if failed
+        """
+        if not self._session:
+            self._logger.error("Database session is not initialized")
+            return None
+
+        try:
+            # Use a nested transaction to ensure atomicity
+            async with self._session.begin_nested() as nested_transaction:
+                try:
+                    # Logging code for potential future use
+                    if code:
+                        try:
+                            # Query genres table for logging purposes
+                            db_genre = await self._genre_repository.get_by_code(self._session, code=code)
+                            if db_genre:
+                                self._logger.info(f"Creating genre progress for code {code}, id: {db_genre.id}")
+                            else:
+                                self._logger.warning(f"Genre with code {code} not found in genres table, creating progress with provided genre_id: {genre_id}")
+                        except Exception as code_error:
+                            self._logger.error(f"Error querying genre by code during create progress: {str(code_error)}")
+                            # Continue with creation even if code lookup fails
+
+                    # Create new progress record
+                    # Use insert().values() instead of ORM object to avoid potential session issues
+                    result = await self._session.execute(
+                        insert(PagesProgress).values(
+                            crawler_progress_id=self._task_id,
+                            relation_id=genre_id,
+                            page_type='genre',
+                            page_number=page,
+                            total_pages=total_pages,
+                            total_items=total_items,
+                            status=status or 'processing'
+                        )
+                    )
+                    
+                    # Get the ID of the inserted record
+                    progress_id = result.inserted_primary_key[0]
+                    self._logger.info(f"Created genre progress record with ID: {progress_id}")
+                    
+                    return progress_id
+                except Exception as inner_error:
+                    self._logger.error(f"Error in nested transaction: {str(inner_error)}")
+                    raise
+                    
+            # If we get here, the nested transaction was successful
+            # Commit the outer transaction
+            await self._session.commit()
+        except Exception as e:
+            # Ensure transaction is rolled back on error
+            try:
+                await self._session.rollback()
+            except Exception as rollback_error:
+                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
+                
+            self._logger.error(f"Error creating genre progress: {str(e)}")
+            return None
+
+    async def update_page_progress(self, page_progress_id: int, status: str, processed_items: int = None):
+        """Update page progress status and processed items count.
+        
+        Args:
+            page_progress_id: ID of the page progress record
+            status: New status
+            processed_items: Number of items processed
+        """
+        if not self._session:
+            self._logger.error("Database session is not initialized")
+            return
+            
+        try:
+            # Prepare update values
+            update_values = {"status": status}
+            if processed_items is not None:
+                update_values["processed_items"] = processed_items
+                
+            # Execute update
+            await self._session.execute(
+                update(PagesProgress)
+                .where(PagesProgress.id == page_progress_id)
+                .values(**update_values)
+            )
+            
+            self._logger.info(f"Updated page progress {page_progress_id} to status '{status}'")
+            return True
+        except Exception as e:
+            try:
+                await self._session.rollback()
+            except Exception as rollback_error:
+                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
+                
+            self._logger.error(f"Error updating page progress: {str(e)}")
+            return False
+            
     async def update_task_status(self, task_id: int, status: str, message: Optional[str] = None):
         """Update task status.
         
@@ -219,16 +355,17 @@ class DBProgressManager:
             duration = movie_data.get('duration', '00:00:00')
             thumbnail = movie_data.get('thumbnail', '')
             
+            # 直接执行插入操作，不使用嵌套事务
             # 构建Movie表的插入数据
             movie_insert = insert(Movie).values(
                 code=code,
                 title=title,
                 duration=duration,
-                thumbnail=thumbnail,  # 使用新的thumbnail字段
+                thumbnail=thumbnail,
                 link=link,
-                original_id=int(original_id),
+                original_id=int(original_id) if original_id else 0,
                 release_date='',
-                status =MovieStatus.NEW.value,
+                status=MovieStatus.NEW.value,
             )
             
             # 执行插入并获取返回的ID
@@ -238,25 +375,33 @@ class DBProgressManager:
             self._logger.info(f"Inserted into Movie table with ID: {movie_id}")
             
             # 然后插入到VideoProgress表
-            await self._session.execute(
-                insert(VideoProgress).values(
-                    crawler_progress_id=self._task_id,
-                    genre_id=movie_data['genre_id'],
-                    page_number=movie_data['page_number'],
-                    title=title,
-                    url=movie_data['url'],
-                    code=code,
-                    movie_id=movie_id,
-                    status=CrawlerStatus.PENDING.value,
-                    page_progress_id=movie_data['page_progress_id']
-                )
+            video_progress_insert = insert(VideoProgress).values(
+                crawler_progress_id=self._task_id,
+                genre_id=movie_data['genre_id'],
+                page_number=movie_data['page_number'],
+                title=title,
+                url=movie_data['url'],
+                code=code,
+                movie_id=movie_id,
+                status=CrawlerStatus.PENDING.value,
+                page_progress_id=movie_data['page_progress_id']
             )
             
+            await self._session.execute(video_progress_insert)
+            
+            # 提交事务
             await self._session.commit()
-            self._logger.info(f"Saved movie: {title} ({code}) with movie_id: {movie_id}")
+            self._logger.info(f"Saved movie: {title} ({code}) with ID: {movie_id}")
+            return movie_id
         except Exception as e:
-            await self._session.rollback()
+            # 确保回滚事务
+            try:
+                await self._session.rollback()
+            except Exception as rollback_e:
+                self._logger.error(f"Error during rollback: {str(rollback_e)}")
+            
             self._logger.error(f"Error saving movie: {str(e)}")
+            return None
             
     async def get_pending_movies(self, limit: int = 100):
         """获取待处理的电影列表。
@@ -333,7 +478,7 @@ class DBProgressManager:
                 update_data["retry_count"] = VideoProgress.retry_count + 1
             
             # 使用独立的会话执行更新操作，避免并发操作冲突
-            from src.crawler.db.connection import get_db_session
+            from crawler.db.connection import get_db_session
             
             # 获取新的数据库会话
             isolated_session = await get_db_session()

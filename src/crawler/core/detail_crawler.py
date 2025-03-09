@@ -10,7 +10,6 @@ from ..utils.http import create_session
 from ..utils.progress_manager import DBProgressManager
 from ..parsers.movie_parser import MovieParser
 from ..parsers.actress_parser import ActressParser
-from ..downloaders.image_downloader import ImageDownloader
 from ..core.movie_detail_info import _get_movie_detail
 from ..db.operations import DBOperations
 class DetailCrawler:

@@ -4,7 +4,7 @@ import logging
 import re
 from typing import Dict, Any, Optional, List
 from bs4 import BeautifulSoup
-from src.crawler.core.movie_detail_info import _extract_movie_id,_extract_m3u8_from_player
+from crawler.core.movie_detail_info import _extract_movie_id,_extract_m3u8_from_player
 class MovieParser:
     """Parser for movie detail pages."""
     

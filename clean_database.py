@@ -6,9 +6,20 @@
 
 import asyncio
 import logging
+import os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from app.config.settings import settings
+
+# 直接从环境变量或配置文件获取数据库连接信息
+try:
+    from app.config.settings import settings
+    DATABASE_URL = settings.DATABASE_URL
+except ImportError:
+        # 如果无法导入settings，使用默认值
+        DATABASE_URL = os.environ.get(
+            "DATABASE_URL", 
+            "postgresql+asyncpg://postgres:postgres@localhost:5432/movie_crawler"
+        )
         
 
 # 配置日志
@@ -59,27 +70,51 @@ SEQUENCES_TO_RESET = [
 
 async def clean_database():
     """清空数据库中的所有表并重置序列"""
-    engine = create_async_engine(settings.DATABASE_URL)
+    engine = create_async_engine(DATABASE_URL)
     
     try:
-        async with engine.begin() as conn:
-            # 1. 清空表
-            for table in TABLES_TO_CLEAN:
-                try:
-                    await conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
-                    logger.info(f"已清空表: {table}")
-                except Exception as e:
-                    logger.error(f"清空表 {table} 时出错: {str(e)}")
-            
-            # 2. 重置序列
-            for sequence in SEQUENCES_TO_RESET:
-                try:
-                    await conn.execute(text(f"ALTER SEQUENCE {sequence} RESTART WITH 1"))
-                    logger.info(f"已重置序列: {sequence}")
-                except Exception as e:
-                    logger.error(f"重置序列 {sequence} 时出错: {str(e)}")
-                    
-            logger.info("数据库清理完成")
+        # 1. 清空表
+        for table in TABLES_TO_CLEAN:
+            try:
+                # 为每个操作使用单独的事务
+                async with engine.begin() as conn:
+                    # 尝试使用更高权限的方式清空表
+                    try:
+                        # 先尝试直接清空
+                        await conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                        logger.info(f"已清空表: {table}")
+                    except Exception as inner_e:
+                        # 如果直接清空失败，尝试使用DELETE FROM
+                        try:
+                            await conn.execute(text(f"DELETE FROM {table}"))
+                            logger.info(f"已使用DELETE FROM清空表: {table}")
+                        except Exception as delete_e:
+                            # 两种方式都失败，记录错误
+                            raise Exception(f"无法清空表 {table}: {str(inner_e)} 和 {str(delete_e)}")
+            except Exception as e:
+                logger.error(f"清空表 {table} 时出错: {str(e)}")
+        
+        # 2. 重置序列
+        for sequence in SEQUENCES_TO_RESET:
+            try:
+                # 为每个操作使用单独的事务
+                async with engine.begin() as conn:
+                    try:
+                        # 尝试直接重置序列
+                        await conn.execute(text(f"ALTER SEQUENCE {sequence} RESTART WITH 1"))
+                        logger.info(f"已重置序列: {sequence}")
+                    except Exception as inner_e:
+                        # 如果直接重置失败，尝试使用SELECT setval
+                        try:
+                            await conn.execute(text(f"SELECT setval('{sequence}', 1, false)"))
+                            logger.info(f"已使用setval重置序列: {sequence}")
+                        except Exception as setval_e:
+                            # 两种方式都失败，记录错误
+                            raise Exception(f"无法重置序列 {sequence}: {str(inner_e)} 和 {str(setval_e)}")
+            except Exception as e:
+                logger.error(f"重置序列 {sequence} 时出错: {str(e)}")
+                
+        logger.info("数据库清理完成")
     except Exception as e:
         logger.error(f"清理数据库时发生错误: {str(e)}")
     finally:
@@ -90,22 +125,36 @@ async def clean_specific_tables(tables=None, reset_sequences=True):
     if tables is None:
         tables = TABLES_TO_CLEAN
         
-    engine = create_async_engine(settings.DATABASE_URL)
+    engine = create_async_engine(DATABASE_URL)
     
     try:
-        async with engine.begin() as conn:
-            # 1. 清空指定表
-            for table in tables:
-                try:
-                    await conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
-                    logger.info(f"已清空表: {table}")
-                except Exception as e:
-                    logger.error(f"清空表 {table} 时出错: {str(e)}")
-            
-            # 2. 如果需要，重置序列
-            if reset_sequences:
-                for sequence in SEQUENCES_TO_RESET:
+        # 1. 清空指定表
+        for table in tables:
+            try:
+                # 为每个操作使用单独的事务
+                async with engine.begin() as conn:
+                    # 尝试使用更高权限的方式清空表
                     try:
+                        # 先尝试直接清空
+                        await conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                        logger.info(f"已清空表: {table}")
+                    except Exception as inner_e:
+                        # 如果直接清空失败，尝试使用DELETE FROM
+                        try:
+                            await conn.execute(text(f"DELETE FROM {table}"))
+                            logger.info(f"已使用DELETE FROM清空表: {table}")
+                        except Exception as delete_e:
+                            # 两种方式都失败，记录错误
+                            raise Exception(f"无法清空表 {table}: {str(inner_e)} 和 {str(delete_e)}")
+            except Exception as e:
+                logger.error(f"清空表 {table} 时出错: {str(e)}")
+        
+        # 2. 如果需要，重置序列
+        if reset_sequences:
+            for sequence in SEQUENCES_TO_RESET:
+                try:
+                    # 为每个操作使用单独的事务
+                    async with engine.begin() as conn:
                         # 检查序列是否存在
                         check_result = await conn.execute(
                             text("SELECT EXISTS(SELECT 1 FROM pg_sequences WHERE sequencename = :seq_name)")
@@ -118,10 +167,10 @@ async def clean_specific_tables(tables=None, reset_sequences=True):
                             logger.info(f"已重置序列: {sequence}")
                         else:
                             logger.warning(f"序列不存在，跳过: {sequence}")
-                    except Exception as e:
-                        logger.error(f"重置序列 {sequence} 时出错: {str(e)}")
-                    
-            logger.info("指定表清理完成")
+                except Exception as e:
+                    logger.error(f"重置序列 {sequence} 时出错: {str(e)}")
+                
+        logger.info("指定表清理完成")
     except Exception as e:
         logger.error(f"清理指定表时发生错误: {str(e)}")
     finally:

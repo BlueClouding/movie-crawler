@@ -67,14 +67,9 @@ class GenreParser:
                                 if not url.startswith('/'):
                                     url = f'/{url}'
                                 
-                                # 如果是 dm*/genres/* 格式，直接使用原始路径，不添加语言代码
-                                if re.search(r'dm\d+/genres/', url):
-                                    url = f'{base_url}{url}'
-                                # 其他情况下，添加语言代码
-                                else:
-                                    if not url.startswith(f'/{self._language}/'):
-                                        url = f'/{self._language}/{url.lstrip("/")}'
-                                    url = f'{base_url}{url}'
+                                # 添加语言代码
+                                url = f'/{self._language.value}/{url.lstrip("/")}'
+                                url = f'{base_url}{url}'
                                 
                             if genre_name and url:
                                 # Extract genre ID if available

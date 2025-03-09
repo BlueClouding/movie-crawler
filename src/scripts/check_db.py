@@ -14,8 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from sqlalchemy import text
-from src.crawler.db.connection import get_db_connection
-from src.app.config.settings import settings
+from crawler.db.connection import get_db_connection
+from app.config.settings import settings
 
 def main():
     """主函数"""

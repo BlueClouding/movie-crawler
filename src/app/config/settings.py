@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # Database settings
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/movie_crawler"
+    # Using dqy superuser account to ensure we have proper permissions
+    DATABASE_URL: str = "postgresql+asyncpg://dqy@localhost:5432/movie_crawler"
     
     # Crawler settings
     BASE_URL: str = "http://123av.com"

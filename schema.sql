@@ -57,7 +57,8 @@ CREATE TABLE movie_actresses (
 -- 创建类型表
 CREATE TABLE genres (
     id SERIAL PRIMARY KEY,
-    urls TEXT[] NOT NULL,
+    urls TEXT[] DEFAULT ARRAY[]::TEXT[],
+    code TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -135,7 +136,6 @@ CREATE TABLE IF NOT EXISTS crawler_progress (
     task_type VARCHAR(50) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     last_update TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    completed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -147,12 +147,10 @@ CREATE TABLE IF NOT EXISTS pages_progress (
     page_type VARCHAR(50) NOT NULL,
     page_number INTEGER NOT NULL,
     total_pages INTEGER NOT NULL,
-    total_items INTEGER NOT NULL,
-    processed_items INTEGER DEFAULT 0,
+    total_items INTEGER,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     last_update TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(relation_id, page_number)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 创建视频处理进度表
@@ -167,12 +165,8 @@ CREATE TABLE IF NOT EXISTS video_progress (
     retry_count INTEGER DEFAULT 0,
     last_error TEXT,
     detail_fetched BOOLEAN DEFAULT FALSE,
-    movie_id INTEGER,
     crawler_progress_id INTEGER NOT NULL,
-    page_progress_id INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(code, genre_id)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 注意：video_resources 表不存在，因此移除相关触发器

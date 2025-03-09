@@ -105,13 +105,13 @@ class GenreRepository(BaseRepository[Genre]):
         }
     
     async def create_with_names(
-        self, db: AsyncSession, *, names: List[Dict[str, Any]], urls: List[str] = None, code: str = None
+        self, db: AsyncSession, *, name: Dict[str, str], urls: List[str] = None, code: str = None
     ) -> Genre:
         """创建类型及其多语言名称
         
         Args:
             db: 数据库会话
-            names: 多语言名称列表，每个元素包含name和language
+            name: 多语言名称列表，每个元素包含name和language
             urls: URL列表
             code: 类型代码
             
@@ -124,9 +124,8 @@ class GenreRepository(BaseRepository[Genre]):
         await db.flush()  # 获取ID但不提交
         
         # 添加名称
-        for name_data in names:
-            db_name = GenreName(**name_data, genre_id=db_genre.id)
-            db.add(db_name)
+        db_name = GenreName(language=name['language'], name=name['name'], genre_id=db_genre.id)
+        db.add(db_name)
         
         await db.commit()
         await db.refresh(db_genre)

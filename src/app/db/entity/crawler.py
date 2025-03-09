@@ -29,7 +29,7 @@ class PagesProgress(DBBaseModel):
     page_number = Column(Integer, nullable=False)
     total_pages = Column(Integer, nullable=False)
     status = Column(String(20), default="pending", nullable=False)
-    total_items = Column(Integer, nullable=False)
+    total_items = Column(Integer, nullable=True)
     last_update = Column(DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     
     def __repr__(self):
