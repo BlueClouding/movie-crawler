@@ -10,24 +10,25 @@ from app.db.entity.movie_info import MovieTitle
 from app.db.entity.actress import Actress, ActressName
 from app.db.entity.genre import Genre, GenreName
 from app.db.entity.download import Magnet, DownloadUrl, WatchUrl
-from app.repositories.base_repository import BaseRepository
-
-class MovieRepository(BaseRepository[Movie]):
-    def __init__(self):
-        super().__init__(Movie)
+from app.repositories.base_repository import BaseRepositoryAsync
+from app.config.database import get_db_session
+from fastapi import Depends
+class MovieRepository(BaseRepositoryAsync[Movie, int]):
+    def __init__(self, db: AsyncSession = Depends(get_db_session)):
+        super().__init__(db)
     
-    async def get_by_code(self, db: AsyncSession, *, code: str) -> Optional[Movie]:
+    async def get_by_code(self, code: str) -> Optional[Movie]:
         """根据影片代码获取影片"""
-        result = await db.execute(select(Movie).filter(Movie.code == code))
+        result = await self.db.execute(select(Movie).filter(Movie.code == code))
         return result.scalars().first()
     
     async def get_with_titles(
-        self, db: AsyncSession, *, skip: int = 0, limit: int = 100, language: SupportedLanguage = None
+        self, skip: int = 0, limit: int = 100, language: SupportedLanguage = None
     ) -> List[Tuple[Movie, List[MovieTitle]]]:
         """获取影片列表，包含标题"""
         # 首先获取电影列表
         movie_query = select(Movie).order_by(Movie.release_date.desc()).offset(skip).limit(limit)
-        movie_result = await db.execute(movie_query)
+        movie_result = await self.db.execute(movie_query)
         movies = movie_result.scalars().all()
         
         # 为每个电影获取标题
@@ -43,7 +44,7 @@ class MovieRepository(BaseRepository[Movie]):
         return result
     
     async def search_by_title(
-        self, db: AsyncSession, *, title: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
+        self, title: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         """根据标题搜索影片"""
         query = select(Movie).join(MovieTitle, Movie.id == MovieTitle.movie_id)
@@ -53,11 +54,11 @@ class MovieRepository(BaseRepository[Movie]):
         
         query = query.filter(MovieTitle.title.ilike(f"%{title}%"))
         query = query.order_by(Movie.release_date.desc()).offset(skip).limit(limit)
-        result = await db.execute(query)
+        result = await self.db.execute(query)
         return result.scalars().all()
     
     async def get_by_actress(
-        self, db: AsyncSession, *, actress_id: int, skip: int = 0, limit: int = 100
+        self, actress_id: int, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         query = (
             select(Movie)
@@ -67,11 +68,11 @@ class MovieRepository(BaseRepository[Movie]):
             .offset(skip)
             .limit(limit)
         )
-        result = await db.execute(query)
+        result = await self.db.execute(query)
         return result.scalars().all()
     
     async def get_by_genre(
-        self, db: AsyncSession, *, genre_id: int, skip: int = 0, limit: int = 100
+        self, genre_id: int, skip: int = 0, limit: int = 100
     ) -> List[Movie]:
         """获取特定类型的所有影片"""
         query = (
@@ -82,16 +83,16 @@ class MovieRepository(BaseRepository[Movie]):
             .offset(skip)
             .limit(limit)
         )
-        result = await db.execute(query)
+        result = await self.db.execute(query)
         return result.scalars().all()
     
     async def get_movie_with_details(
-        self, db: AsyncSession, *, movie_id: int, language: SupportedLanguage = None
+        self, movie_id: int, language: SupportedLanguage = None
     ) -> Dict[str, Any]:
         """获取电影详细信息，包括标题、演员、类型等"""
         # 获取电影基本信息
         movie_query = select(Movie).filter(Movie.id == movie_id)
-        movie_result = await db.execute(movie_query)
+        movie_result = await self.db.execute(movie_query)
         movie = movie_result.scalars().first()
         
         if not movie:
@@ -101,7 +102,7 @@ class MovieRepository(BaseRepository[Movie]):
         title_query = select(MovieTitle).filter(MovieTitle.movie_id == movie_id)
         if language:
             title_query = title_query.filter(MovieTitle.language == language)
-        title_result = await db.execute(title_query)
+        title_result = await self.db.execute(title_query)
         titles = title_result.scalars().all()
         
         # 获取演员信息
@@ -113,7 +114,7 @@ class MovieRepository(BaseRepository[Movie]):
         )
         if language:
             actress_query = actress_query.filter(ActressName.language == language)
-        actress_result = await db.execute(actress_query)
+        actress_result = await self.db.execute(actress_query)
         actresses = actress_result.all()
         
         # 获取类型信息
@@ -125,22 +126,22 @@ class MovieRepository(BaseRepository[Movie]):
         )
         if language:
             genre_query = genre_query.filter(GenreName.language == language)
-        genre_result = await db.execute(genre_query)
+        genre_result = await self.db.execute(genre_query)
         genres = genre_result.all()
         
         # 获取磁力链接
         magnet_query = select(Magnet).filter(Magnet.movie_id == movie_id)
-        magnet_result = await db.execute(magnet_query)
+        magnet_result = await self.db.execute(magnet_query)
         magnets = magnet_result.scalars().all()
         
         # 获取下载链接
         download_query = select(DownloadUrl).filter(DownloadUrl.movie_id == movie_id).order_by(DownloadUrl.index)
-        download_result = await db.execute(download_query)
+        download_result = await self.db.execute(download_query)
         download_urls = download_result.scalars().all()
         
         # 获取观看链接
         watch_query = select(WatchUrl).filter(WatchUrl.movie_id == movie_id).order_by(WatchUrl.index)
-        watch_result = await db.execute(watch_query)
+        watch_result = await self.db.execute(watch_query)
         watch_urls = watch_result.scalars().all()
         
         # 构建结果

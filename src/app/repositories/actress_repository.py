@@ -5,14 +5,16 @@ from app.db.entity.actress import Actress, ActressName
 from app.db.entity.enums import SupportedLanguage
 from app.db.entity.movie_actress import MovieActress
 from app.db.entity.movie import Movie
-from app.repositories.base_repository import BaseRepository
+from app.repositories.base_repository import BaseRepositoryAsync
+from app.config.database import get_db_session
+from fastapi import Depends
 
-class ActressRepository(BaseRepository[Actress]):
-    def __init__(self):
-        super().__init__(Actress)
+class ActressRepository(BaseRepositoryAsync[Actress, int]):
+    def __init__(self, db: AsyncSession = Depends(get_db_session)):
+        super().__init__(db)
     
     async def get_by_name(
-        self, db: AsyncSession, *, name: str, language: SupportedLanguage = None
+        self, name: str, language: SupportedLanguage = None
     ) -> Optional[Actress]:
         """根据名字获取演员"""
         query = select(Actress).join(ActressName, Actress.id == ActressName.actress_id)
@@ -21,11 +23,11 @@ class ActressRepository(BaseRepository[Actress]):
             query = query.where(ActressName.language == language)
         
         query = query.where(ActressName.name == name)
-        result = await db.execute(query)
+        result = await self.db.execute(query)
         return result.scalars().first()
     
     async def search_by_name(
-        self, db: AsyncSession, *, name: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
+        self, name: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
     ) -> List[Actress]:
         """根据名字搜索演员"""
         query = select(Actress).join(ActressName, Actress.id == ActressName.actress_id)
@@ -35,11 +37,11 @@ class ActressRepository(BaseRepository[Actress]):
         
         query = query.where(ActressName.name.ilike(f"%{name}%"))
         query = query.offset(skip).limit(limit)
-        result = await db.execute(query)
+        result = await self.db.execute(query)
         return result.scalars().all()
     
     async def get_with_names(
-        self, db: AsyncSession, *, actress_id: int, language: SupportedLanguage = None
+        self, actress_id: int, language: SupportedLanguage = None
     ) -> Tuple[Actress, List[ActressName]]:
         """获取演员及其名称"""
         # 获取演员
@@ -54,17 +56,17 @@ class ActressRepository(BaseRepository[Actress]):
         name_query = select(ActressName).filter(ActressName.actress_id == actress_id)
         if language:
             name_query = name_query.filter(ActressName.language == language)
-        name_result = await db.execute(name_query)
+        name_result = await self.db.execute(name_query)
         names = name_result.scalars().all()
         
         return actress, names
     
     async def get_actress_with_movies(
-        self, db: AsyncSession, *, actress_id: int, skip: int = 0, limit: int = 100
-    ) -> Dict[str, Any]:
+        self, actress_id: int, skip: int = 0, limit: int = 100
+    ) -> List[Movie]:
         """获取演员及其相关电影"""
         # 获取演员
-        actress, names = await self.get_with_names(db, actress_id=actress_id)
+        actress, names = await self.get_with_names(actress_id=actress_id)
         
         if not actress:
             return None
@@ -78,22 +80,16 @@ class ActressRepository(BaseRepository[Actress]):
             .offset(skip)
             .limit(limit)
         )
-        movie_result = await db.execute(movie_query)
-        movies = movie_result.scalars().all()
-        
-        return {
-            "actress": actress,
-            "names": names,
-            "movies": movies
-        }
+        movie_result = await self.db.execute(movie_query)
+        return movie_result.scalars().all()
     
     async def create_with_names(
-        self, db: AsyncSession, *, names: List[Dict[str, Any]]
+        self, names: List[Dict[str, Any]]
     ) -> Actress:
         """创建演员及其多语言名称"""
         # 创建演员
         db_actress = Actress()
-        db.add(db_actress)
+        self.db.add(db_actress)
         await db.flush()  # 获取ID但不提交
         
         # 添加名称

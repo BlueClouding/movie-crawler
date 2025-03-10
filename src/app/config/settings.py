@@ -2,6 +2,8 @@ from pydantic_settings import BaseSettings
 import os
 
 class Settings(BaseSettings):
+    """Configuration settings for the application, including server, database, and crawler settings."""
+
     # Server settings
     SERVER_HOST: str = "localhost"
     SERVER_PORT: int = 18080

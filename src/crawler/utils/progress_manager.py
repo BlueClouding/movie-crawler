@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, insert
+from sqlalchemy import select, update, delete, insert, func
 from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
 from app.repositories.genre_repository import GenreRepository
 from app.db.entity.movie import Movie,MovieStatus
@@ -487,75 +487,75 @@ class DBProgressManager:
                 return
                 
             try:
-                # 首先获取电影记录，以获取page_progress_id
-                video_result = await isolated_session.execute(
-                    select(VideoProgress).where(VideoProgress.movie_id == movie_id)
-                )
-                video_progress = video_result.scalar_one_or_none()
-                
-                if not video_progress:
-                    self._logger.error(f"Video progress not found for movie_id {movie_id}")
-                    return
-                    
-                page_progress_id = video_progress.page_progress_id
-                
-                # 使用独立会话执行更新
-                await isolated_session.execute(
-                    update(VideoProgress)
-                    .where(VideoProgress.movie_id == movie_id)
-                    .values(**update_data)
-                )
-                
-                # 如果状态为已完成，检查并更新对应的pages_progress记录
-                if status == "completed" and page_progress_id:
-                    # 获取页面进度记录
-                    page_result = await isolated_session.execute(
-                        select(PagesProgress).where(PagesProgress.id == page_progress_id)
+                # 将所有操作包裹在一个事务内，避免并发操作问题
+                async with isolated_session.begin():
+                    # 首先获取电影记录，以获取page_progress_id
+                    video_result = await isolated_session.execute(
+                        select(VideoProgress).where(VideoProgress.movie_id == movie_id)
                     )
-                    page_progress = page_result.scalar_one_or_none()
+                    video_progress = video_result.scalar_one_or_none()
                     
-                    if page_progress:
-                        # 获取当前页面已完成的电影数量
-                        count_result = await isolated_session.execute(
-                            select(func.count())
-                            .select_from(VideoProgress)
-                            .where(
-                                VideoProgress.page_progress_id == page_progress_id,
-                                VideoProgress.status == "completed"
+                    if not video_progress:
+                        self._logger.error(f"Video progress not found for movie_id {movie_id}")
+                        return
+                        
+                    page_progress_id = video_progress.page_progress_id
+                    
+                    # 使用独立会话执行更新
+                    await isolated_session.execute(
+                        update(VideoProgress)
+                        .where(VideoProgress.movie_id == movie_id)
+                        .values(**update_data)
+                    )
+                    
+                    # 如果状态为已完成，检查并更新对应的pages_progress记录
+                    if status == "completed" and page_progress_id:
+                        # 获取页面进度记录
+                        page_result = await isolated_session.execute(
+                            select(PagesProgress).where(PagesProgress.id == page_progress_id)
+                        )
+                        page_progress = page_result.scalar_one_or_none()
+                        
+                        if page_progress:
+                            # 获取当前页面已完成的电影数量
+                            count_result = await isolated_session.execute(
+                                select(func.count())
+                                .select_from(VideoProgress)
+                                .where(
+                                    VideoProgress.page_progress_id == page_progress_id,
+                                    VideoProgress.status == "completed"
+                                )
                             )
-                        )
-                        completed_count = count_result.scalar_one()
-                        
-                        # 获取当前页面的总电影数量
-                        total_count_result = await isolated_session.execute(
-                            select(func.count())
-                            .select_from(VideoProgress)
-                            .where(VideoProgress.page_progress_id == page_progress_id)
-                        )
-                        total_count = total_count_result.scalar_one()
-                        
-                        # 更新页面进度记录
-                        page_update_data = {
-                            "processed_items": completed_count,
-                            "total_items": total_count
-                        }
-                        
-                        # 如果已完成的电影数量等于总数，则将页面状态设置为已完成
-                        if completed_count >= total_count:
-                            page_update_data["status"] = "completed"
-                            self._logger.info(f"All movies for page_progress_id {page_progress_id} have been completed")
-                        
-                        await isolated_session.execute(
-                            update(PagesProgress)
-                            .where(PagesProgress.id == page_progress_id)
-                            .values(**page_update_data)
-                        )
+                            completed_count = count_result.scalar_one()
+                            
+                            # 获取当前页面的总电影数量
+                            total_count_result = await isolated_session.execute(
+                                select(func.count())
+                                .select_from(VideoProgress)
+                                .where(VideoProgress.page_progress_id == page_progress_id)
+                            )
+                            total_count = total_count_result.scalar_one()
+                            
+                            # 更新页面进度记录
+                            page_update_data = {
+                                "processed_items": completed_count,
+                                "total_items": total_count
+                            }
+                            
+                            # 如果已完成的电影数量等于总数，则将页面状态设置为已完成
+                            if completed_count >= total_count:
+                                page_update_data["status"] = "completed"
+                                self._logger.info(f"All movies for page_progress_id {page_progress_id} have been completed")
+                            
+                            await isolated_session.execute(
+                                update(PagesProgress)
+                                .where(PagesProgress.id == page_progress_id)
+                                .values(**page_update_data)
+                            )
                 
-                await isolated_session.commit()
                 self._logger.info(f"Updated movie {movie_id} status to {status}")
             except Exception as session_error:
                 # 处理独立会话的错误
-                await isolated_session.rollback()
                 self._logger.error(f"Error in isolated session: {str(session_error)}")
                 raise session_error
             finally:

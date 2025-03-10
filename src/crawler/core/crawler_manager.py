@@ -38,53 +38,51 @@ class CrawlerManager:
         self._genre_processor = None
         self._detail_crawler = None
         
-    async def initialize(self):
-        """Initialize database connections and progress manager."""
-        try:
-            # Get database session
-            session = await get_db_session()
-            if session is None:
-                raise Exception("Failed to get database session")
-                
-            # Initialize progress manager
-            self._progress_manager = DBProgressManager(language=self._language, task_id=self._task_id)
-            await self._progress_manager.initialize(session)
-            
-            # Initialize genre processor
-            self._genre_processor = GenreProcessor(self._base_url, self._language, db_session=session)
-            
-            # Initialize detail crawler
-            self._detail_crawler = DetailCrawler(self._base_url, self._language, self._threads)
-            await self._detail_crawler.initialize(self._progress_manager, self._output_dir)
-            
-            self._logger.info("Crawler manager initialized successfully")
-            return True
-            
-        except Exception as e:
-            self._logger.error(f"Error initializing crawler manager: {str(e)}")
-            return False
         
-    async def initialize_and_start(self):
+    async def initialize_and_startGenres(self):
         """Initialize and start the crawler in background."""
         try:
-            await self.initialize()
-            await self.start()
+            await self.startGenres()
         except Exception as e:
             self._logger.error(f"Error in crawler background task: {str(e)}")
+            await self._update_status("failed", str(e))
+            return False
+
+    # async def initialize_and_startActresses(self):
+    #     """Initialize and start the crawler in background."""
+    #     try:
+    #         await self.initialize()
+    #         await self.startActresses()
+    #     except Exception as e:
+    #         self._logger.error(f"Error in crawler background task: {str(e)}")
+    #         await self._update_status("failed", str(e))
+    #         return False
+
+    #startGenresPages
+    async def initialize_and_startGenresPages(self):
+        """Initialize and start the crawler in background."""
+        try:
+            await self.startGenresPages()
+        except Exception as e:
+            self._logger.error(f"Error in crawler background task: {str(e)}")
+            await self._update_status("failed", str(e))
+            return False
+
+    async def initialize_and_startMovies(self):
+        """Initialize and start the crawler in background."""
+        try:
+            await self.startMovies()
+        except Exception as e:
+            self._logger.error(f"Error in crawler background task: {str(e)}")
+            await self._update_status("failed", str(e))
+            return False
+    
         
-    async def start(self):
+    async def startGenres(self):
         """Start the crawling process."""
         try:
-            if not self._progress_manager:
-                if not await self.initialize():
-                    await self._update_status("failed", "Failed to initialize crawler")
-                    return False
-            
             self._logger.info("Starting crawler manager...")
             
-            if self._clear_existing:
-                await self._clear_data()
-
             # Step 1: Process genres
             await self._update_status("processing_genres")
             if not await self._genre_processor.process_genres(self._progress_manager):
@@ -94,11 +92,37 @@ class CrawlerManager:
             if self._stop_flag:
                 await self._update_status("stopped")
                 return False
+            self._logger.info("Successfully completed all crawling tasks")
+            await self._update_status("completed")
+            return True
 
-            # Step 2: Process movie details
-            self._logger.info("Successfully processed genres, starting movie details processing")
+        except Exception as e:
+            error_msg = f"Error in crawler manager: {str(e)}"
+            self._logger.error(error_msg)
+            await self._update_status("failed", error_msg)
+            return False
+
+    async def startGenresPages(self):
+        try:
+            await self._update_status("processing_genre_pages")
+            if not await self._genre_processor._process_genres_pages(self._progress_manager):
+                await self._update_status("failed", "Failed to process genre pages")
+                return False
+
+            if self._stop_flag:
+                await self._update_status("stopped")
+                return False
+
+            return True
+        except Exception as e:
+            error_msg = f"Error processing genre pages: {str(e)}"
+            self._logger.error(error_msg)
+            await self._update_status("failed", error_msg)
+            return False
+
+    async def startMovies(self):
+        try:
             await self._update_status("processing_movies")
-            
             if not await self._detail_crawler.process_pending_movies():
                 await self._update_status("failed", "Failed to process movie details")
                 return False
@@ -110,26 +134,21 @@ class CrawlerManager:
             # Step 3: Process actress details
             self._logger.info("Successfully processed movie details, starting actress processing")
             await self._update_status("processing_actresses")
-            
-            # if not await self._detail_crawler.process_actresses():
-            #     await self._update_status("failed", "Failed to process actress details")
-            #     return False
+            if not await self._detail_crawler.process_actresses():
+                await self._update_status("failed", "Failed to process actress details")
+                return False
 
-            # if self._stop_flag:
-            #     await self._update_status("stopped")
-            #     return False
+            if self._stop_flag:
+                await self._update_status("stopped")
+                return False
 
-            # All done!
-            self._logger.info("Successfully completed all crawling tasks")
-            await self._update_status("completed")
             return True
-
         except Exception as e:
-            error_msg = f"Error in crawler manager: {str(e)}"
+            error_msg = f"Error processing movie details: {str(e)}"
             self._logger.error(error_msg)
             await self._update_status("failed", error_msg)
             return False
-            
+
     async def stop(self):
         """Stop the crawling process."""
         self._stop_flag = True

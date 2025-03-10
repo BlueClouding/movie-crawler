@@ -6,43 +6,41 @@ from app.db.entity.enums import SupportedLanguage
 from app.db.entity.genre import Genre, GenreName
 from app.db.entity.movie_genres import MovieGenre
 from app.db.entity.movie import Movie
-from app.repositories.base_repository import BaseRepository
-
-class GenreRepository(BaseRepository[Genre]):
-    def __init__(self):
-        super().__init__(Genre)
+from app.repositories.base_repository import BaseRepositoryAsync
+from app.config.database import get_db_session
+from fastapi import Depends
+class GenreRepository(BaseRepositoryAsync[Genre, int]):
+    def __init__(self, db: AsyncSession = Depends(get_db_session)):
+        super().__init__(db)
     
     async def get_by_name(
-        self, db: AsyncSession, *, name: str, language: SupportedLanguage = None
+        self, name: str, language: SupportedLanguage = None
     ) -> Optional[Genre]:
         """根据名称获取类型"""
-        query = select(Genre).join(GenreName, Genre.id == GenreName.genre_id)
-        
-        if language:
-            query = query.filter(GenreName.language == language)
-        
-        query = query.filter(GenreName.name == name)
-        result = await db.execute(query)
+        query = select(Genre).join(GenreName).where(
+            GenreName.name == name,
+            GenreName.language == language if language else True
+        )
+        result = await self.db.execute(query)
         return result.scalars().first()
         
     async def get_by_code(
-        self, db: AsyncSession, *, code: str
+        self, code: str
     ) -> Optional[Genre]:
         """根据code获取类型
         
         Args:
-            db: 数据库会话
             code: 类型代码
             
         Returns:
             Optional[Genre]: 找到的类型，如果没有找到则返回None
         """
         query = select(Genre).filter(Genre.code == code)
-        result = await db.execute(query)
+        result = await self.db.execute(query)
         return result.scalars().first()
     
     async def search_by_name(
-        self, db: AsyncSession, *, name: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
+        self, name: str, language: SupportedLanguage = None, skip: int = 0, limit: int = 100
     ) -> List[Genre]:
         """根据名称搜索类型"""
         query = select(Genre).join(GenreName, Genre.id == GenreName.genre_id)
@@ -52,16 +50,16 @@ class GenreRepository(BaseRepository[Genre]):
         
         query = query.filter(GenreName.name.ilike(f"%{name}%"))
         query = query.offset(skip).limit(limit)
-        result = await db.execute(query)
+        result = await self.db.execute(query)
         return result.scalars().all()
     
     async def get_with_names(
-        self, db: AsyncSession, *, genre_id: int, language: SupportedLanguage = None
+        self, genre_id: int, language: SupportedLanguage = None
     ) -> Tuple[Genre, List[GenreName]]:
         """获取类型及其名称"""
         # 获取类型
         genre_query = select(Genre).filter(Genre.id == genre_id)
-        genre_result = await db.execute(genre_query)
+        genre_result = await self.db.execute(genre_query)
         genre = genre_result.scalars().first()
         
         if not genre:
@@ -71,20 +69,20 @@ class GenreRepository(BaseRepository[Genre]):
         name_query = select(GenreName).filter(GenreName.genre_id == genre_id)
         if language:
             name_query = name_query.filter(GenreName.language == language)
-        name_result = await db.execute(name_query)
+        name_result = await self.db.execute(name_query)
         names = name_result.scalars().all()
         
         return genre, names
     
     async def get_genre_with_movies(
-        self, db: AsyncSession, *, genre_id: int, skip: int = 0, limit: int = 100
-    ) -> Dict[str, Any]:
+        self, genre_id: int, skip: int = 0, limit: int = 100
+    ) -> List[Movie]:
         """获取类型及其相关电影"""
         # 获取类型
-        genre, names = await self.get_with_names(db, genre_id=genre_id)
+        genre, names = await self.get_with_names(genre_id=genre_id)
         
         if not genre:
-            return None
+            return []
         
         # 获取相关电影
         movie_query = (
@@ -95,22 +93,15 @@ class GenreRepository(BaseRepository[Genre]):
             .offset(skip)
             .limit(limit)
         )
-        movie_result = await db.execute(movie_query)
-        movies = movie_result.scalars().all()
-        
-        return {
-            "genre": genre,
-            "names": names,
-            "movies": movies
-        }
+        movie_result = await self.db.execute(movie_query)
+        return movie_result.scalars().all()
     
     async def create_with_names(
-        self, db: AsyncSession, *, name: Dict[str, str], urls: List[str] = None, code: str = None
+        self, name: Dict[str, str], urls: List[str] = None, code: str = None
     ) -> Genre:
         """创建类型及其多语言名称
         
         Args:
-            db: 数据库会话
             name: 多语言名称列表，每个元素包含name和language
             urls: URL列表
             code: 类型代码
@@ -120,19 +111,19 @@ class GenreRepository(BaseRepository[Genre]):
         """
         # 创建类型
         db_genre = Genre(urls=urls or [], code=code)
-        db.add(db_genre)
-        await db.flush()  # 获取ID但不提交
+        self.db.add(db_genre)
+        await self.db.flush()  # 获取ID但不提交
         
         # 添加名称
         db_name = GenreName(language=name['language'], name=name['name'], genre_id=db_genre.id)
-        db.add(db_name)
+        self.db.add(db_name)
         
-        await db.commit()
-        await db.refresh(db_genre)
+        await self.db.commit()
+        await self.db.refresh(db_genre)
         return db_genre
     
     async def get_popular(
-        self, db: AsyncSession, *, skip: int = 0, limit: int = 100
+        self, skip: int = 0, limit: int = 100
     ) -> List[Genre]:
         """获取最受欢迎的类型（根据影片数量）"""
         # 创建子查询获取类型ID和影片数量
@@ -157,5 +148,11 @@ class GenreRepository(BaseRepository[Genre]):
             .limit(limit)
         )
         
-        result = await db.execute(query)
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
+    # get all genres
+    async def get_all(self) -> List[Genre]:
+        query = select(Genre)
+        result = await self.db.execute(query)
         return result.scalars().all()

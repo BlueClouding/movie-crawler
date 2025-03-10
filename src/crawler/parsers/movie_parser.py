@@ -5,6 +5,7 @@ import re
 from typing import Dict, Any, Optional, List
 from bs4 import BeautifulSoup
 from crawler.core.movie_detail_info import _extract_movie_id,_extract_m3u8_from_player
+from app.db.entity.movie import Movie
 class MovieParser:
     """Parser for movie detail pages."""
     
@@ -171,7 +172,7 @@ class MovieParser:
             self._logger.error(f"Traceback: {traceback.format_exc()}")
             return None
     
-    def extract_movie_links(self, html_content: str, base_url: str) -> List[Dict[str, str]]:
+    def extract_movie_links(self, html_content: str, base_url: str) -> List[Movie]:
         """Extract movie links from a page.
         
         Args:
@@ -206,7 +207,7 @@ class MovieParser:
                     self._logger.info(f"Found {len(items)} items using selector: {selector}")
                     for item in items:
                         try:
-                            movie = {}
+                            movie = Movie()
                             
                             # 提取电影代码和ID
                             favourite_div = item.select_one('.favourite')
@@ -214,7 +215,7 @@ class MovieParser:
                                 # 从data-code属性中提取电影代码
                                 movie_code = favourite_div.get('data-code', '')
                                 if movie_code:
-                                    movie['code'] = movie_code
+                                    movie.code = movie_code
                                 
                                 # 从v-scope属性中提取电影ID
                                 v_scope = favourite_div.get('v-scope', '')
@@ -222,7 +223,7 @@ class MovieParser:
                                     # 使用正则表达式提取ID
                                     id_match = re.search(r"Favourite\('movie', (\d+)", v_scope)
                                     if id_match:
-                                        movie['id'] = id_match.group(1)
+                                        movie.id = id_match.group(1)
                             
                             # 提取电影标题
                             # 首先尝试从detail区域获取标题
@@ -230,12 +231,12 @@ class MovieParser:
                             if detail_div:
                                 title = detail_div.get_text(strip=True)
                                 if title:
-                                    movie['title'] = title
+                                    movie.title = title
                                 
                                 # 获取链接
                                 url = detail_div.get('href', '')
                                 if url:
-                                    movie['link'] = url
+                                    movie.url = url
                                     # 处理URL格式
                                     if not url.startswith('http'):
                                         # 如果是相对路径，添加域名
@@ -243,7 +244,7 @@ class MovieParser:
                                             url = f'{base_url}{url}'
                                         else:
                                             url = f'{base_url}/{url}'
-                                    movie['url'] = url
+                                    movie.url = url
                             
                             # Get thumbnail
                             img = item.select_one('img')
@@ -261,15 +262,15 @@ class MovieParser:
                                         else:
                                             thumbnail = f'{base_url}/{thumbnail}'
                                             
-                                    movie['thumbnail'] = thumbnail     
+                                    movie.thumbnail = thumbnail     
                             
                             # Get duration
                             duration_elem = item.select_one('.duration')
                             if duration_elem:
-                                movie['duration'] = duration_elem.get_text(strip=True)
+                                movie.duration = duration_elem.get_text(strip=True)
                             
                             # 如果有URL就添加，不必要求有code
-                            if movie.get('url'):
+                            if movie.url:
                                 self._logger.info(f"Found movie: {movie}")
                                 movies.append(movie)
                             else:

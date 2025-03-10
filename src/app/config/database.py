@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from app.config.settings import settings
+from typing import AsyncGenerator
 
 # Use the DATABASE_URL from settings
 engine = create_async_engine(
@@ -23,7 +24,7 @@ async_session = sessionmaker(
 
 Base = declarative_base()
 
-async def get_db():
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session() as session:
         try:
             yield session
@@ -33,8 +34,3 @@ async def get_db():
             raise
         finally:
             await session.close()
-
-async def get_session_from_generator():
-    async for session in get_db(): # Asynchronously iterate to get the session
-        return session
-    return None # Or raise an exception if no session yielded

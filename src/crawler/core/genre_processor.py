@@ -4,6 +4,8 @@ import logging
 import time
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.entity.movie import Movie
+from app.services.movie_service import MovieService
 from ..utils.http import create_session
 from ..utils.progress_manager import DBProgressManager
 from ..parsers.genre_parser import GenreParser
@@ -36,6 +38,7 @@ class GenreProcessor:
         self._max_genres = None  # 默认不限制
         self._max_pages = None   # 默认不限制
         
+    # 拆分 genres 处理和 page 处理
     async def process_genres(self, progress_manager: DBProgressManager) -> bool:
         """Process and save genres.
         
@@ -71,111 +74,7 @@ class GenreProcessor:
                 self._logger.error("Failed to save genres to database")
                 return False
             
-            # Process each genre
-            for i, genre in enumerate(saved_genres[:max_genres]):
-                try:
-                    # 使用 genre 中的 code 字段
-                    genre_code = genre.code
-                    self._logger.info(f"Processing genre {i+1}/{max_genres}: {genre_code}")
-                    
-                    # Get current progress
-                    current_page = await progress_manager.get_genre_progress(genre.id, code=genre_code)
-                    
-                    # Process genre pages
-                    total_pages = await self._get_total_pages(genre.urls[0])
-                    if not total_pages:
-                        self._logger.warning(f"Could not determine total pages for genre {genre_code}, skipping")
-                        continue
-                        
-                    self._logger.info(f"Genre {genre_code} has {total_pages} pages, current progress: {current_page}")
-
-                    # Process each page
-                    for page in range(current_page + 1, total_pages + 1):
-                        try:
-                            # Process page and get movie data
-                            self._logger.info(f"Processing page {page}/{total_pages} for genre {genre_code}")
-                            movies = await self._process_page(genre.urls[0], page)
-                            
-                            if not movies:
-                                self._logger.warning(f"No movies found on page {page} for genre {genre_code}")
-                                # Create progress record anyway to mark this page as processed
-                                await progress_manager.create_genre_progress(
-                                    genre_id=genre.id,
-                                    page=page,
-                                    total_pages=total_pages,
-                                    code=genre_code,
-                                    status='completed',
-                                    total_items=0
-                                )
-                                # Commit to save progress even when no movies found
-                                await self._db_session.commit()
-                                continue
-                                
-                            # Create progress record for this page
-                            page_progress_id = await progress_manager.create_genre_progress(
-                                genre_id=genre.id,
-                                page=page,
-                                total_pages=total_pages,
-                                code=genre_code,
-                                status='processing',
-                                total_items=len(movies)
-                            )
-                            
-                            # Commit progress record
-                            await self._db_session.commit()
-                            
-                            # Prepare all movies with required data
-                            prepared_movies = []
-                            for movie in movies:
-                                try:
-                                    # Create a copy of the movie dictionary to avoid modifying the original
-                                    movie_data = dict(movie)
-                                    movie_data['genre_id'] = genre.id
-                                    movie_data['page_number'] = page
-                                    movie_data['page_progress_id'] = page_progress_id
-                                    prepared_movies.append(movie_data)
-                                except Exception as prep_error:
-                                    self._logger.error(f"Error preparing movie data: {str(prep_error)}")
-                            
-                            # Save movies one by one with proper async handling
-                            saved_count = 0
-                            for movie_data in prepared_movies:
-                                try:
-                                    # Save movie to database - each save operation creates its own transaction
-                                    movie_id = await progress_manager.save_movie(movie_data)
-                                    if movie_id:
-                                        saved_count += 1
-                                    # Commit after each successful save to avoid transaction conflicts
-                                    await self._db_session.commit()
-                                except Exception as movie_error:
-                                    self._logger.error(f"Error saving movie: {str(movie_error)}")
-                                    try:
-                                        await self._db_session.rollback()
-                                    except Exception as rollback_error:
-                                        self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
-                                    # Continue with next movie
-                                    continue
-                            
-                            self._logger.info(f"Saved {saved_count}/{len(movies)} movies from page {page}")
-                            
-                            # Update progress status to completed
-                            if saved_count > 0:
-                                await progress_manager.update_page_progress(
-                                    page_progress_id=page_progress_id,
-                                    status='completed',
-                                    processed_items=saved_count
-                                )
-                                await self._db_session.commit()
-                        except Exception as page_error:
-                            self._logger.error(f"Error processing page {page} for genre {genre_code}: {str(page_error)}")
-                            try:
-                                await self._db_session.rollback()
-                            except Exception as rollback_error:
-                                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
-                            continue
-                except Exception as genre_error:
-                    self._logger.error(f"Error processing genre {genre_code}: {str(genre_error)}")
-                    continue
+            
 
             self._logger.info("Successfully processed all genres")
             return True
@@ -183,7 +82,106 @@ class GenreProcessor:
         except Exception as e:
             self._logger.error(f"Error processing genres: {str(e)}")
             return False
+
+
+    async def _process_genres_pages(self, progress_manager: DBProgressManager) -> bool:
+        # Process each genre
+        all_genres = await self._get_all_genres()
+        max_genres = self._max_genres if self._max_genres is not None else len(all_genres)
+        self._logger.info(f"Processing up to {max_genres} genres")
+
+        for i, genre in enumerate(all_genres[:max_genres]):
+            try:
+                # 使用 genre 中的 code 字段
+                genre_code = genre.code
+                self._logger.info(f"Processing genre {i+1}/{max_genres}: {genre_code}")
+                
+                # Get current progress
+                current_page = await progress_manager.get_genre_progress(genre.id, code=genre_code)
+                
+                # Process genre pages
+                total_pages = await self._get_total_pages(genre.urls[0])
+                if not total_pages:
+                    self._logger.warning(f"Could not determine total pages for genre {genre_code}, skipping")
+                    continue
+                    
+                self._logger.info(f"Genre {genre_code} has {total_pages} pages, current progress: {current_page}")
+
+                # Process each page
+                await self._process_genre_pages(genre, total_pages, current_page, progress_manager)
+            except Exception as genre_error:
+                self._logger.error(f"Error processing genre {genre_code}: {str(genre_error)}")
+                continue
+                
+        self._logger.info("Successfully processed all genres")
+        return True
+
+    async def _process_genre_pages(self, genre: Genre, total_pages: int, current_page: int, progress_manager: DBProgressManager) -> bool:
+        # Create a new progress manager for each page to avoid session conflicts        
+        for page in range(current_page + 1, total_pages + 1):
+            try:
+                # Process page and get movie data
+                self._logger.info(f"Processing page {page}/{total_pages} for genre {genre.code}")
+                movies = await self._process_page(genre.urls[0], page)
+                
+                # Create a new session for each page processing
+                async with AsyncSession(create_session()) as new_session:
+                    # Create a new progress manager with the new session
+                    page_progress_manager = DBProgressManager(self._language.value if self._language else "ja", progress_manager._task_id)
+                    await page_progress_manager.initialize(new_session)
+                    
+                    if not movies:
+                        self._logger.warning(f"No movies found on page {page} for genre {genre.code}")
+                        # Create progress record anyway to mark this page as processed
+                        await page_progress_manager.create_genre_progress(
+                            genre_id=genre.id,
+                            page=page,
+                            total_pages=total_pages,
+                            code=genre.code,
+                            status='completed',
+                            total_items=0
+                        )
+                        await new_session.commit()
+                        continue
+                        
+                    # Create progress record for this page
+                    page_progress_id = await page_progress_manager.create_genre_progress(
+                        genre_id=genre.id,
+                        page=page,
+                        total_pages=total_pages,
+                        code=genre.code,
+                        status='processing',
+                        total_items=len(movies)
+                    )
+                    
+                    if not page_progress_id:
+                        self._logger.error(f"Failed to create progress record for page {page} of genre {genre.code}")
+                        continue
+
+                    # Save movies
+                    from app.services.movie_service import MovieService
+                    movie_service = MovieService(new_session)
+                    saved_count = await movie_service.save_movies(movies)
+                    
+                    # Update progress status to completed if movies were saved
+                    if saved_count > 0:
+                        await page_progress_manager.update_page_progress(
+                            page_progress_id=page_progress_id,
+                            status='completed',
+                            processed_items=saved_count
+                        )
+                    
+                    # Commit all changes for this page in a single transaction
+                    await new_session.commit()
+                    
+            except Exception as page_error:
+                self._logger.error(f"Error processing page {page} for genre {genre.code}: {str(page_error)}", exc_info=True)
+                continue
+        
+        return True
             
+    
+    
     async def _fetch_genres(self) -> list:
         """Fetch all available genres from the website.
         
@@ -226,20 +224,20 @@ class GenreProcessor:
             Optional[int]: 类型 ID，如果发生错误则返回 None
         """
         try:
-            # 使用独立的事务来防止事务中止问题
-            async with self._db_session.begin_nested() as nested:
-                # 查询数据库中是否存在匹配的 genre
+            # First try to get the genre by code
+            db_genre = None
+            async with self._db_session.begin():
                 db_genre = await self._genre_repository.get_by_code(
                     self._db_session, code=code
                 )
                 
-                if db_genre:
-                    # 如果找到了匹配的 genre，则使用其 ID
-                    self._logger.info(f"Found existing genre with code {code}, id: {db_genre.id}")
-                    return db_genre.id
+            if db_genre:
+                # If found, return its ID
+                self._logger.info(f"Found existing genre with code {code}, id: {db_genre.id}")
+                return db_genre.id
             
-            # 如果没有找到匹配的 genre，则在新的事务中创建
-            async with self._db_session.begin_nested() as nested:
+            # If not found, create a new genre in a separate transaction
+            async with self._db_session.begin():
                 # 准备多语言名称数据
                 name = {
                     "name": genre['name'],
@@ -259,11 +257,7 @@ class GenreProcessor:
         except Exception as e:
             # 使用exc_info=True记录完整的堆栈跟踪信息
             self._logger.error(f"Error in _get_or_create_genre_by_code: {str(e)}", exc_info=True)
-            # 确保事务被回滚
-            try:
-                await self._db_session.rollback()
-            except Exception as rollback_error:
-                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}", exc_info=True)
+            # No need to manually rollback with async with begin()
             return None
             
     async def _get_total_pages(self, url: str) -> Optional[int]:
@@ -324,7 +318,7 @@ class GenreProcessor:
             self._logger.error(f"Error getting total pages: {str(e)}")
             return None
             
-    async def _process_page(self, base_url: str, page: int) -> list:
+    async def _process_page(self, base_url: str, page: int) -> List[Movie]:
         """Process a single page of a genre.
         
         Args:
@@ -387,24 +381,24 @@ class GenreProcessor:
             
         saved_genres = []
         
-        try:
-            # Process genres one by one without nested transactions
-            for genre in genres:
-                try:
-                    # First check if genre already exists by code
+        # Process genres one by one with proper transaction handling
+        for genre in genres:
+            try:
+                # First check if genre already exists by code in its own transaction
+                existing_genre = None
+                async with self._db_session.begin():
                     existing_genre = await self._genre_repository.get_by_code(
                         self._db_session, 
                         code=genre['code']
                     )
+                
+                if existing_genre:
+                    self._logger.info(f"Genre with code {genre['code']} already exists, skipping creation")
+                    saved_genres.append(existing_genre)
+                    continue
                     
-                    if existing_genre:
-                        self._logger.info(f"Genre with code {genre['code']} already exists, skipping creation")
-                        saved_genres.append(existing_genre)
-                        # Commit after each successful check to avoid transaction conflicts
-                        await self._db_session.commit()
-                        continue
-                        
-                    # Create new genre if it doesn't exist
+                # Create new genre if it doesn't exist in a separate transaction
+                async with self._db_session.begin():
                     db_genre = await self._genre_repository.create_with_names(
                         self._db_session,
                         urls=[genre['url']],
@@ -415,29 +409,16 @@ class GenreProcessor:
                         code=genre['code']
                     )
                     
-                    # Commit after each successful creation to avoid transaction conflicts
-                    await self._db_session.commit()
-                    
                     saved_genres.append(db_genre)
                     self._logger.info(f"Created new genre: {genre['name']} with code {genre['code']}")
-                except Exception as genre_error:
-                    self._logger.error(f"Error processing genre {genre.get('name', 'unknown')}: {str(genre_error)}")
-                    try:
-                        await self._db_session.rollback()
-                    except Exception as rollback_error:
-                        self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
-                    # Continue with next genre instead of failing the entire batch
-                    continue
-            
-            self._logger.info(f"Successfully saved {len(saved_genres)} genres to database")
-            return saved_genres
-        except Exception as e:
-            self._logger.error(f"Error saving genres to database: {str(e)}")
-            try:
-                await self._db_session.rollback()
-            except Exception as rollback_error:
-                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
-            return []
+            except Exception as genre_error:
+                self._logger.error(f"Error processing genre {genre.get('name', 'unknown')}: {str(genre_error)}", exc_info=True)
+                # No need to manually rollback with async with begin()
+                # Continue with next genre instead of failing the entire batch
+                continue
+                
+        self._logger.info(f"Successfully saved {len(saved_genres)} genres to database")
+        return saved_genres
             
     async def _get_genre_name(self, genre_id: int) -> str:
         """Get genre name by genre id.
@@ -468,6 +449,24 @@ class GenreProcessor:
         except Exception as e:
             self._logger.error(f"Error getting genre name: {str(e)}")
             return f"Genre {genre_id}"
+
+    async def _get_all_genres(self) -> List[Genre]:
+        """Get all genres from the database.
+        
+        Returns:
+            List of genre dictionaries
+        """
+        try:
+            # Get all genres from the database
+            genres = await self._genre_repository.get_all(self._db_session)
+            if not genres:
+                self._logger.warning("No genres found in the database")
+                return []
+            
+            return genres
+        except Exception as e:
+            self._logger.error(f"Error getting all genres: {str(e)}")
+            return []
 
 def main():
     """Main entry point."""

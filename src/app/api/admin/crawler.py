@@ -20,6 +20,12 @@ class Language(str, Enum):
     JA = "ja"
     ZH = "zh"
 
+class Start(str, Enum):
+    GENRES = "genres"
+    GENRES_PAGES = "genres_pages"
+    MOVIES = "movies"
+    ACTRESSES = "actresses"
+
 class CrawlerRequest(BaseModel):
     base_url: str = "https://123av.com"
     language: Language = Language.JA
@@ -27,6 +33,8 @@ class CrawlerRequest(BaseModel):
     clear_existing: bool = False
     clear_all_data: bool = False
     output_dir: str = None
+    # ENUM genres, movies, actresses
+    start: Start = Start.GENRES
 
 class CrawlerResponse(BaseModel):
     task_id: int
@@ -65,7 +73,12 @@ async def start_crawler(request: CrawlerRequest, services: ServiceFactory = Depe
         
         # Initialize crawler in background
         import asyncio
-        asyncio.create_task(manager.initialize_and_start())
+        switch = {
+            Start.GENRES: manager.initialize_and_startGenres,
+            Start.GENRES_PAGES: manager.initialize_and_startGenresPages,
+            Start.MOVIES: manager.initialize_and_startMovies
+        }
+        asyncio.create_task(switch[request.start]())
         
         return CrawlerResponse(
             task_id=task.id,

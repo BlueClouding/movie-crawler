@@ -1,68 +1,39 @@
-from typing import Generic, TypeVar, Type, List, Optional, Any, Dict, Union
+# 基础异步Repository抽象类
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
-from sqlalchemy.future import select
-from fastapi.encoders import jsonable_encoder
+from fastapi import Depends
+from typing import Generic, List, Optional, Type, TypeVar
+from sqlalchemy import select
+from app.config.database import get_db_session
+from abc import ABC
 
-from app.db.entity.base import DBBaseModel
-
-
-ModelType = TypeVar("ModelType", bound=DBBaseModel)
-
-class BaseRepository(Generic[ModelType]):
-    def __init__(self, model: Type[ModelType]):
-        self.model = model
+class BaseRepositoryAsync(Generic[M, K], ABC):
+    def __init__(self, db: AsyncSession = Depends(get_db_session)):
+        self.db = db
+        self.model = self._resolve_model_type()  # 更可靠的模型类型解析
     
-    async def get(self, db: AsyncSession, id: Any) -> Optional[ModelType]:
-        """根据ID获取单个对象"""
-        result = await db.execute(select(self.model).filter(self.model.id == id))
-        return result.scalars().first()
-    
-    async def get_multi(
-        self, db: AsyncSession, *, skip: int = 0, limit: int = 100
-    ) -> List[ModelType]:
-        """获取多个对象"""
-        result = await db.execute(select(self.model).offset(skip).limit(limit))
+    def _resolve_model_type(self) -> Type[M]:
+        """通过泛型参数解析模型类型"""
+        origin = getattr(self.__class__, "__orig_bases__", [])
+        if origin and hasattr(origin[0], "__args__"):
+            return origin[0].__args__[0]
+        raise TypeError("无法自动解析模型类型，请显式指定")
+
+    async def list_async(
+        self, 
+        filters: Optional[dict] = None,
+        limit: int = 100, 
+        offset: int = 0
+    ) -> List[M]:
+        """异步分页查询"""
+        query = select(self.model)
+        if filters:
+            query = query.filter_by(**filters)
+        result = await self.db.execute(query.offset(offset).limit(limit))
         return result.scalars().all()
-    
-    async def create(self, db: AsyncSession, *, obj_in: Dict[str, Any]) -> ModelType:
-        """创建新对象"""
-        obj_data = obj_in
-        db_obj = self.model(**obj_data)
-        db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
-        return db_obj
-    
-    async def update(
-        self, db: AsyncSession, *, db_obj: ModelType, obj_in: Union[Dict[str, Any], ModelType]
-    ) -> ModelType:
-        """更新对象"""
-        obj_data = jsonable_encoder(db_obj)
-        if isinstance(obj_in, dict):
-            update_data = obj_in
-        else:
-            update_data = jsonable_encoder(obj_in)
-        
-        for field in obj_data:
-            if field in update_data:
-                setattr(db_obj, field, update_data[field])
-        
-        db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
-        return db_obj
-    
-    async def remove(self, db: AsyncSession, *, id: int) -> ModelType:
-        """删除对象"""
-        result = await db.execute(select(self.model).filter(self.model.id == id))
-        obj = result.scalars().first()
-        if obj:
-            await db.delete(obj)
-            await db.commit()
-        return obj
-    
-    async def count(self, db: AsyncSession) -> int:
-        """获取对象总数"""
-        result = await db.execute(select(func.count()).select_from(self.model))
-        return result.scalar()
+
+    async def create_async(self, instance: M) -> M:
+        """异步创建"""
+        self.db.add(instance)
+        await self.db.commit()
+        await self.db.refresh(instance)
+        return instance

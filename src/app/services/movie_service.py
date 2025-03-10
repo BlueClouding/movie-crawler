@@ -176,3 +176,8 @@ class MovieService(BaseService[Movie]):
         await self.db.commit()
         await self.db.refresh(movie_title)
         return movie_title
+
+    async def save_movies(self, movies: List[Movie]) -> int:
+        self.db.add_all(movies)
+        await self.db.commit()
+        return len(movies)
