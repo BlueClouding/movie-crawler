@@ -6,11 +6,18 @@ from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
 from app.repositories.genre_repository import GenreRepository
 from app.db.entity.movie import Movie,MovieStatus
 from app.db.entity.enums import CrawlerStatus
+from fastapi import Depends
+from src.crawler.repository.page_crawler_repository import PageCrawlerRepository
+from src.crawler.repository.movie_crawler_repository import MovieCrawlerRepository
+from app.db.entity.enums import SupportedLanguage
 
-class DBProgressManager:
+class CrawlerProgressService:
     """Database progress manager."""
     
-    def __init__(self, language: str, task_id: int):
+    def __init__(self, language: str, task_id: int, genre_repository: GenreRepository = Depends(GenreRepository),
+        page_crawler_repository: PageCrawlerRepository = Depends(PageCrawlerRepository), 
+        movie_crawler_repository: MovieCrawlerRepository = Depends(MovieCrawlerRepository)
+    ):
         """Initialize progress manager.
         
         Args:
@@ -18,18 +25,10 @@ class DBProgressManager:
             task_id: ID of the associated crawler task
         """
         self._language = language
-        self._session = None
         self._logger = logging.getLogger(__name__)
         self._task_id = task_id
-        self._genre_repository = GenreRepository()
+        self._genre_repository = genre_repository
 
-    async def initialize(self, session: AsyncSession):
-        """Initialize crawler progress record.
-        
-        Args:
-            session: SQLAlchemy async session
-        """
-        self._session = session
 
     async def get_genre_progress(self, genre_id: int, code: str = None) -> int:
         """Get the last processed page for a genre.
@@ -41,57 +40,39 @@ class DBProgressManager:
         Returns:
             int: Last processed page number, 0 if not started
         """
-        if not self._session:
-            self._logger.error("Database session is not initialized")
-            return 0
-            
+       
         try:
-            # Use a nested transaction for read operations to ensure proper async context
-            async with self._session.begin_nested() as nested_transaction:
-                try:
-                    # If code is provided, try to get genre by code
-                    if code:
-                        try:
-                            # Query genres table for the matching code
-                            db_genre = await self._genre_repository.get_by_code(self._session, code=code)
-                            if db_genre:
-                                # If found matching genre, use its ID for progress lookup
-                                self._logger.info(f"Found genre with code {code}, id: {db_genre.id}")
-                                genre_id = db_genre.id
-                        except Exception as code_error:
-                            self._logger.error(f"Error querying genre by code: {str(code_error)}")
-                            # Continue with provided genre_id if code lookup fails
+            # Query genres table for the matching code
+            db_genre = await self._genre_repository.get_by_code(code)
+            if db_genre:
+                # If found matching genre, use its ID for progress lookup
+                self._logger.info(f"Found genre with code {code}, id: {db_genre.id}")
+                genre_id = db_genre.id
+        except Exception as code_error:
+            self._logger.error(f"Error querying genre by code: {str(code_error)}")
+            # Continue with provided genre_id if code lookup fails
+    
+        # Query progress using genre_id
+        result = await self._page_crawler_repository.(
+            select(PagesProgress)
+            .filter(
+                PagesProgress.relation_id == genre_id,
+                PagesProgress.page_type == 'genre',
+                PagesProgress.crawler_progress_id == self._task_id
+            )
+            .order_by(PagesProgress.page_number.desc())
+            .limit(1)
+        )
+        page_progress = result.scalars().first()
                     
-                    # Query progress using genre_id
-                    result = await self._session.execute(
-                        select(PagesProgress)
-                        .filter(
-                            PagesProgress.relation_id == genre_id,
-                            PagesProgress.page_type == 'genre',
-                            PagesProgress.crawler_progress_id == self._task_id
-                        )
-                        .order_by(PagesProgress.page_number.desc())
-                        .limit(1)
-                    )
-                    page_progress = result.scalars().first()
-                    
-                    # Return page number if found, otherwise 0
-                    if page_progress:
-                        self._logger.info(f"Found progress for genre {genre_id}: page {page_progress.page_number}/{page_progress.total_pages}")
-                        return page_progress.page_number
-                    else:
-                        self._logger.info(f"No progress found for genre {genre_id}, starting from page 0")
-                        return 0
-                except Exception as inner_error:
-                    self._logger.error(f"Error in nested transaction: {str(inner_error)}")
-                    raise
-        except Exception as e:
-            self._logger.error(f"Error getting genre progress: {str(e)}")
-            try:
-                await self._session.rollback()
-            except Exception as rollback_error:
-                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
+        # Return page number if found, otherwise 0
+        if page_progress:
+            self._logger.info(f"Found progress for genre {genre_id}: page {page_progress.page_number}/{page_progress.total_pages}")
+            return page_progress.page_number
+        else:
+            self._logger.info(f"No progress found for genre {genre_id}, starting from page 0")
             return 0
+    
 
     #返回值为最新的genre_progress 的 id
     async def update_genre_progress(self, genre_id: int, page: int, total_pages: int, code: str = None, status: str = None, total_items: int = None):

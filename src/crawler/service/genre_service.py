@@ -3,59 +3,64 @@
 import logging
 import time
 from typing import Optional, List, Dict, Any
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.entity.movie import Movie
 from app.services.movie_service import MovieService
+from crawler.core import crawler_manager
 from ..utils.http import create_session
-from ..utils.progress_manager import DBProgressManager
+from ..service.crawler_progress_service import CrawlerProgressService
 from ..parsers.genre_parser import GenreParser
 from ..parsers.movie_parser import MovieParser
 from app.repositories.genre_repository import GenreRepository
 from app.db.entity.genre import Genre
 from app.db.entity.enums import SupportedLanguage
+import requests
+from ..service.crawler_progress_service import CrawlerProgressService
+from ..models.genre_info import GenreInfo
+from crawler.service import crawler_progress_service
 
-class GenreProcessor:
+class GenreService:
     """Processor for genre data."""
     
-    def __init__(self, base_url: str, language: str, db_session: Optional[AsyncSession] = None):
+    def __init__(self, base_url: str, language: str, 
+                 genre_repository: GenreRepository = Depends(GenreRepository),
+                 crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService),
+                 genre_parser: GenreParser = Depends(GenreParser),
+                 movie_parser: MovieParser = Depends(MovieParser)
+    ):
         """Initialize GenreProcessor.
 
         Args:
             base_url: Base URL for the website
             language: Language code
-            db_session: Optional database session for genre operations
+            genre_repository: GenreRepository instance for genre operations
         """
-        self._base_url = base_url
-        self._language = language
-        self._logger = logging.getLogger(__name__)
-        self._session = create_session(use_proxy=True)
-        self._genre_parser = GenreParser(language)
-        self._movie_parser = MovieParser(language)
-        self._db_session = db_session
-        self._genre_repository = GenreRepository()
+        self._base_url : str = base_url
+        self._language : SupportedLanguage = language
+        self._logger : logging.Logger = logging.getLogger(__name__)
+        self._session : requests.Session = create_session(use_proxy=True)
+        self._genre_parser : GenreParser = genre_parser
+        self._movie_parser : MovieParser = movie_parser
+        self._genre_repository : GenreRepository = genre_repository
+        self._crawler_progress_service : CrawlerProgressService = crawler_progress_service
         
         # 限制爬取的类型数量和页数
-        self._max_genres = None  # 默认不限制
-        self._max_pages = None   # 默认不限制
+        self._max_genres : Optional[int] = None  # 默认不限制
+        self._max_pages : Optional[int] = None   # 默认不限制
         
     # 拆分 genres 处理和 page 处理
-    async def process_genres(self, progress_manager: DBProgressManager) -> bool:
+    async def process_genres(self) -> bool:
         """Process and save genres.
         
-        Args:
-            progress_manager: DBProgressManager instance for tracking progress
-            
         Returns:
             bool: True if successful, False otherwise
         """
-        if not self._db_session:
-            self._logger.error("Database session is not initialized")
-            return False
             
         try:
             # Fetch genres
             self._logger.info("Processing genres...")
-            genres = await self._fetch_genres()
+            genres : List[GenreInfo] = await self._fetch_genres()
             if not genres:
                 self._logger.error("Failed to fetch genres")
                 return False
@@ -69,13 +74,11 @@ class GenreProcessor:
             self._logger.info(f"Processing up to {max_genres} genres")
 
             # 先把所有genres保存到数据库
-            saved_genres = await self._save_genres_to_db(genres)
+            saved_genres = await self.save_genres_to_db(genres)
             if not saved_genres:
                 self._logger.error("Failed to save genres to database")
                 return False
             
-            
-
             self._logger.info("Successfully processed all genres")
             return True
 
@@ -84,7 +87,7 @@ class GenreProcessor:
             return False
 
 
-    async def _process_genres_pages(self, progress_manager: DBProgressManager) -> bool:
+    async def process_genres_pages(self) -> bool:
         # Process each genre
         all_genres = await self._get_all_genres()
         max_genres = self._max_genres if self._max_genres is not None else len(all_genres)
@@ -97,7 +100,7 @@ class GenreProcessor:
                 self._logger.info(f"Processing genre {i+1}/{max_genres}: {genre_code}")
                 
                 # Get current progress
-                current_page = await progress_manager.get_genre_progress(genre.id, code=genre_code)
+                current_page = await crawler_progress_service.get_genre_progress(genre.id, code=genre_code)
                 
                 # Process genre pages
                 total_pages = await self._get_total_pages(genre.urls[0])
@@ -204,7 +207,7 @@ class GenreProcessor:
                 self._logger.error(f"Failed to fetch genres: HTTP {response.status_code}")
                 return []
             
-            genres = self._genre_parser.parse_genres_page(response.text, self._base_url)
+            genres : List[GenreInfo] = self._genre_parser.parse_genres_page(response.text, self._base_url)
             self._logger.info(f"Found {len(genres)} genres")
             return genres
             
@@ -366,53 +369,44 @@ class GenreProcessor:
             self._logger.error(f"Error processing page {page}: {str(e)}")
             return []
 
-    async def _save_genres_to_db(self, genres: List[Dict[str, Any]]):
+    async def save_genres_to_db(self, genre_infos: List[GenreInfo]):
         """Save genres to database.
         
         Args:
-            genres: List of genre dictionaries
+            genre_infos: List of genre dictionaries
             
         Returns:
             List of saved Genre objects
         """
-        if not self._db_session:
-            self._logger.error("Database session is not initialized")
-            return []
-            
         saved_genres = []
         
         # Process genres one by one with proper transaction handling
-        for genre in genres:
+        for genre_info in genre_infos:
             try:
                 # First check if genre already exists by code in its own transaction
-                existing_genre = None
-                async with self._db_session.begin():
-                    existing_genre = await self._genre_repository.get_by_code(
-                        self._db_session, 
-                        code=genre['code']
-                    )
+                existing_genre = await self._genre_repository.get_by_code(
+                    code=genre_info.code
+                )
                 
                 if existing_genre:
-                    self._logger.info(f"Genre with code {genre['code']} already exists, skipping creation")
+                    self._logger.info(f"Genre with code {genre_info.code} already exists, skipping creation")
                     saved_genres.append(existing_genre)
                     continue
                     
                 # Create new genre if it doesn't exist in a separate transaction
-                async with self._db_session.begin():
-                    db_genre = await self._genre_repository.create_with_names(
-                        self._db_session,
-                        urls=[genre['url']],
-                        name = {
-                            'language': SupportedLanguage(self._language) if self._language else SupportedLanguage.ja,
-                            'name': genre['name']
-                        },
-                        code=genre['code']
-                    )
+                db_genre = await self._genre_repository.create_with_names(
+                    urls=[genre_info.url],
+                    name = {
+                        'language': SupportedLanguage(self._language) if self._language else SupportedLanguage.ja,
+                        'name': genre_info.name
+                    },
+                    code=genre_info.code
+                )
                     
-                    saved_genres.append(db_genre)
-                    self._logger.info(f"Created new genre: {genre['name']} with code {genre['code']}")
+                saved_genres.append(db_genre)
+                self._logger.info(f"Created new genre: {genre_info.name} with code {genre_info.code}")
             except Exception as genre_error:
-                self._logger.error(f"Error processing genre {genre.get('name', 'unknown')}: {str(genre_error)}", exc_info=True)
+                self._logger.error(f"Error processing genre {genre_info.name}: {str(genre_error)}", exc_info=True)
                 # No need to manually rollback with async with begin()
                 # Continue with next genre instead of failing the entire batch
                 continue
@@ -431,7 +425,7 @@ class GenreProcessor:
         """
         try:
             # 获取genre及其名称
-            genre_result = await self._genre_repository.get_with_names(self._db_session, genre_id=genre_id)
+            genre_result = await self._genre_repository.get_with_names(genre_id=genre_id)
             if genre_result and len(genre_result) == 2:
                 genre, names = genre_result
                 if names:
@@ -442,7 +436,7 @@ class GenreProcessor:
                     # 如果没有当前语言的名称，返回第一个名称
                     return names[0].name
             # 如果没有找到名称，尝试直接获取genre
-            genre = await self._genre_repository.get(self._db_session, genre_id)
+            genre = await self._genre_repository.get(genre_id)
             if genre:
                 return f"Genre {genre.code or genre_id}"
             return f"Genre {genre_id}"
@@ -458,7 +452,7 @@ class GenreProcessor:
         """
         try:
             # Get all genres from the database
-            genres = await self._genre_repository.get_all(self._db_session)
+            genres = await self._genre_repository.get_all()
             if not genres:
                 self._logger.warning("No genres found in the database")
                 return []

@@ -4,6 +4,9 @@ import logging
 import re
 from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
+from app.db.entity.enums import SupportedLanguage
+from app.db.entity.genre import Genre
+from ..models.genre_info import GenreInfo
 
 class GenreParser:
     """Parser for genre pages."""
@@ -14,10 +17,10 @@ class GenreParser:
         Args:
             language: Language code
         """
-        self._language = language
-        self._logger = logging.getLogger(__name__)
+        self._language : SupportedLanguage = language
+        self._logger : logging.Logger = logging.getLogger(__name__)
     
-    def parse_genres_page(self, html_content: str, base_url: str) -> List[Dict[str, Any]]:
+    def parse_genres_page(self, html_content: str, base_url: str) -> List[GenreInfo]:
         """Parse genres from the genres page.
         
         Args:
@@ -29,7 +32,7 @@ class GenreParser:
         """
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
-            genres = []
+            genres = []   
             
             # 根据测试结果使用正确的选择器
             selectors = [
@@ -92,13 +95,13 @@ class GenreParser:
                                     if '?' in code:
                                         code = code.split('?')[0]
                                 
-                                genres.append({
-                                    'name': clean_name,
-                                    'url': url,
-                                    'id': genre_id,
-                                    'code': code,  # 添加 code 字段
-                                    'original_name': genre_name  # 保存原始名称以便参考
-                                })
+                                genres.append(GenreInfo(
+                                    name=clean_name,
+                                    url=url,
+                                    id=genre_id,
+                                    code=code,
+                                    original_name=genre_name
+                                ))
                                 
                         except Exception as e:
                             self._logger.error(f"Error processing genre item: {str(e)}")
