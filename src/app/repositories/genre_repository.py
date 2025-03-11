@@ -1,14 +1,13 @@
 from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
-
-from app.db.entity.enums import SupportedLanguage
-from app.db.entity.genre import Genre, GenreName
-from app.db.entity.movie_genres import MovieGenre
-from app.db.entity.movie import Movie
 from app.repositories.base_repository import BaseRepositoryAsync
 from app.config.database import get_db_session
 from fastapi import Depends
+from db.entity.genre import Genre, GenreName
+from src.enums.enums import SupportedLanguage
+from sqlalchemy.engine.result import Result
+
 class GenreRepository(BaseRepositoryAsync[Genre, int]):
     def __init__(self, db: AsyncSession = Depends(get_db_session)):
         super().__init__(db)
@@ -26,7 +25,7 @@ class GenreRepository(BaseRepositoryAsync[Genre, int]):
         
     async def get_by_code(
         self, code: str
-    ) -> Optional[Genre]:
+    ) -> Genre:
         """根据code获取类型
         
         Args:
@@ -36,7 +35,7 @@ class GenreRepository(BaseRepositoryAsync[Genre, int]):
             Optional[Genre]: 找到的类型，如果没有找到则返回None
         """
         query = select(Genre).filter(Genre.code == code)
-        result = await self.db.execute(query)
+        result : Result = await self.db.execute(query)
         return result.scalars().first()
     
     async def search_by_name(

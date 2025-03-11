@@ -1,15 +1,16 @@
 import logging
+import re
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, insert, func
-from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
 from app.repositories.genre_repository import GenreRepository
-from app.db.entity.movie import Movie,MovieStatus
-from app.db.entity.enums import CrawlerStatus
 from fastapi import Depends
+from db.entity.crawler import PagesProgress
 from src.crawler.repository.page_crawler_repository import PageCrawlerRepository
 from src.crawler.repository.movie_crawler_repository import MovieCrawlerRepository
-from app.db.entity.enums import SupportedLanguage
+from src.crawler.models.update_progress import GenrePageProgressUpdate
+from db.entity.crawler import CrawlerProgress
+from db.entity.genre import Genre
 
 class CrawlerProgressService:
     """Database progress manager."""
@@ -28,6 +29,8 @@ class CrawlerProgressService:
         self._logger = logging.getLogger(__name__)
         self._task_id = task_id
         self._genre_repository = genre_repository
+        self._page_crawler_repository = page_crawler_repository
+        self._movie_crawler_repository = movie_crawler_repository
 
 
     async def get_genre_progress(self, genre_id: int, code: str = None) -> int:
@@ -50,28 +53,10 @@ class CrawlerProgressService:
                 genre_id = db_genre.id
         except Exception as code_error:
             self._logger.error(f"Error querying genre by code: {str(code_error)}")
-            # Continue with provided genre_id if code lookup fails
+            return 0
     
         # Query progress using genre_id
-        result = await self._page_crawler_repository.(
-            select(PagesProgress)
-            .filter(
-                PagesProgress.relation_id == genre_id,
-                PagesProgress.page_type == 'genre',
-                PagesProgress.crawler_progress_id == self._task_id
-            )
-            .order_by(PagesProgress.page_number.desc())
-            .limit(1)
-        )
-        page_progress = result.scalars().first()
-                    
-        # Return page number if found, otherwise 0
-        if page_progress:
-            self._logger.info(f"Found progress for genre {genre_id}: page {page_progress.page_number}/{page_progress.total_pages}")
-            return page_progress.page_number
-        else:
-            self._logger.info(f"No progress found for genre {genre_id}, starting from page 0")
-            return 0
+        return await self._page_crawler_repository.get_latest_page_by_genre_task(genre_id, self._task_id)
     
 
     #返回值为最新的genre_progress 的 id
@@ -86,15 +71,12 @@ class CrawlerProgressService:
             status: Optional status of the genre
             total_items: Optional total number of items
         """
-        if not self._session:
-            return
-            
         try:
             # 如果提供了 code，则尝试使用 code 查询
             if code:
                 try:
                     # 查询 genres 表中是否有匹配的 code
-                    db_genre = await self._genre_repository.get_by_code(self._session, code=code)
+                    db_genre = await self._genre_repository.get_by_code(code)
                     if db_genre:
                         # 如果找到了匹配的 genre，则使用其 ID
                         self._logger.info(f"Found genre with code {code}, id: {db_genre.id}")
@@ -103,37 +85,14 @@ class CrawlerProgressService:
                     self._logger.error(f"Error querying genre by code: {str(e)}")
             
             # First query existing progress
-            result = await self._session.execute(
-                select(PagesProgress)
-                .filter(
-                    PagesProgress.relation_id == genre_id,
-                    PagesProgress.page_type == 'genre',
-                    PagesProgress.crawler_progress_id == self._task_id
-                )
-            )
-            page_progress = result.scalars().first()
+            page_progress : PagesProgress = await self._page_crawler_repository.get_latest_page_by_genre_task(genre_id, self._task_id)
 
             if page_progress:
-                # Update existing progress
-                update_values = {
-                    "page_number": page,
-                    "total_pages": total_pages,
-                    "status": status
-                }
-                # Conditionally add total_items to update_values only if it's not None
-                if total_items is not None:
-                    update_values["total_items"] = total_items
-
-                if status is not None:
-                    update_values["status"] = status
-
-
-                # Update the progress record
-                await self._session.execute(
-                    update(PagesProgress)
-                    .where(PagesProgress.id == page_progress.id)
-                    .values(**update_values) # 使用 **kwargs 展开字典
+                update_values = GenrePageProgressUpdate(
+                    page=page, total_pages=total_pages, code=code, status=status, total_items=total_items
                 )
+                # Update the progress record
+                return await self._page_crawler_repository.update_page_progress(page_progress.id, update_values)
             else:
                 # Create new progress
                 page_progress = PagesProgress(
@@ -145,13 +104,10 @@ class CrawlerProgressService:
                     total_items=total_items,
                     status=status
                 )
-                self._session.add(page_progress)
-                
-            await self._session.commit()
-            return page_progress.id
+                return await self._page_crawler_repository.create_genre_progress(page_progress)
         except Exception as e:
-            await self._session.rollback()
             self._logger.error(f"Error updating genre progress: {str(e)}")
+            return None
 
     async def create_genre_progress(self, genre_id: int, page: int, total_pages: int, code: str = None, status: str = None, total_items: int = None):
         """Create new progress for a genre.
@@ -167,61 +123,20 @@ class CrawlerProgressService:
         Returns:
             int: ID of the created progress record, or None if failed
         """
-        if not self._session:
-            self._logger.error("Database session is not initialized")
-            return None
-
         try:
-            # Use a nested transaction to ensure atomicity
-            async with self._session.begin_nested() as nested_transaction:
-                try:
-                    # Logging code for potential future use
-                    if code:
-                        try:
-                            # Query genres table for logging purposes
-                            db_genre = await self._genre_repository.get_by_code(self._session, code=code)
-                            if db_genre:
-                                self._logger.info(f"Creating genre progress for code {code}, id: {db_genre.id}")
-                            else:
-                                self._logger.warning(f"Genre with code {code} not found in genres table, creating progress with provided genre_id: {genre_id}")
-                        except Exception as code_error:
-                            self._logger.error(f"Error querying genre by code during create progress: {str(code_error)}")
-                            # Continue with creation even if code lookup fails
+            # Query genres table for logging purposes
+            db_genre : Genre = await self._genre_repository.get_by_code(code)
+            if db_genre:
+                self._logger.info(f"Creating genre progress for code {code}, id: {db_genre.id}")
 
-                    # Create new progress record
-                    # Use insert().values() instead of ORM object to avoid potential session issues
-                    result = await self._session.execute(
-                        insert(PagesProgress).values(
-                            crawler_progress_id=self._task_id,
-                            relation_id=genre_id,
-                            page_type='genre',
-                            page_number=page,
-                            total_pages=total_pages,
-                            total_items=total_items,
-                            status=status or 'processing'
-                        )
-                    )
-                    
-                    # Get the ID of the inserted record
-                    progress_id = result.inserted_primary_key[0]
-                    self._logger.info(f"Created genre progress record with ID: {progress_id}")
-                    
-                    return progress_id
-                except Exception as inner_error:
-                    self._logger.error(f"Error in nested transaction: {str(inner_error)}")
-                    raise
-                    
-            # If we get here, the nested transaction was successful
-            # Commit the outer transaction
-            await self._session.commit()
-        except Exception as e:
-            # Ensure transaction is rolled back on error
-            try:
-                await self._session.rollback()
-            except Exception as rollback_error:
-                self._logger.error(f"Error rolling back transaction: {str(rollback_error)}")
-                
-            self._logger.error(f"Error creating genre progress: {str(e)}")
+                result = await self._page_crawler_repository.create_genre_progress(
+                    genre_id, page, total_pages, code, status, total_items
+                )
+                return result
+            else:
+                self._logger.warning(f"Genre with code {code} not found in genres table, creating progress with provided genre_id: {genre_id}")
+        except Exception as code_error:
+            self._logger.error(f"Error querying genre by code during create progress: {str(code_error)}")
             return None
 
     async def update_page_progress(self, page_progress_id: int, status: str, processed_items: int = None):
@@ -232,10 +147,6 @@ class CrawlerProgressService:
             status: New status
             processed_items: Number of items processed
         """
-        if not self._session:
-            self._logger.error("Database session is not initialized")
-            return
-            
         try:
             # Prepare update values
             update_values = {"status": status}
@@ -284,13 +195,11 @@ class CrawlerProgressService:
             
     async def clear_progress(self):
         """Clear all progress data for current language."""
-        if not self._session:
-            return
             
         try:
             # Delete all progress records
-            await self._session.execute(delete(PagesProgress))
-            await self._session.execute(delete(VideoProgress))
+            await self._page_crawler_repository.db.execute(delete(PagesProgress))
+            await self._movie_crawler_repository.db.execute(delete(VideoProgress))
             await self._session.commit()
         except Exception as e:
             await self._session.rollback()

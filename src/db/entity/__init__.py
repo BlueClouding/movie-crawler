@@ -1,6 +1,6 @@
 """Core crawler components"""
 
-from app.db.entity.base import DBBaseModel
+from src.db.entity.base import DBBaseModel
 from app.db.entity.movie import Movie
 from app.db.entity.movie_info import MovieTitle
 from app.db.entity.actress import Actress, ActressName

@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Column, Integer, String, Text, Date
 
-from app.db.entity.base import DBBaseModel
+from src.db.entity.base import DBBaseModel
 
 
 class Magnet(DBBaseModel):

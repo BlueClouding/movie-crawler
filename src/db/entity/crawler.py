@@ -3,7 +3,6 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Column, String, Integer, Text, Boolean, DateTime
 from sqlalchemy.sql import func
-
 from src.db.entity.base import DBBaseModel
 
 

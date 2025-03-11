@@ -3,7 +3,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from sqlalchemy import Column, Integer, Text
 
-from app.db.entity.base import DBBaseModel
+from src.db.entity.base import DBBaseModel
 from app.db.entity.enums import SupportedLanguageEnum
 
 class Actress(DBBaseModel):

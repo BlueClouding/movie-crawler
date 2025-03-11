@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # 导入所有实体类，确保它们被注册到SQLAlchemy的元数据中
 from app.config.settings import settings
 from app.config.database import Base
-from app.db.entity.base import DBBaseModel
+from src.db.entity.base import DBBaseModel
 from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
 from app.db.entity.movie import Movie
 from app.db.entity.actress import Actress

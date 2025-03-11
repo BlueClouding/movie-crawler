@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, Text
-from app.db.entity.base import DBBaseModel
+from src.db.entity.base import DBBaseModel
 from app.db.entity.enums import SupportedLanguageEnum
 
 

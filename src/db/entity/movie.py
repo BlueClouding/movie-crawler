@@ -6,7 +6,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
 from pydantic import BaseModel, ConfigDict
 from app.config.database import Base
-from app.db.entity.base import DBBaseModel
+from src.db.entity.base import DBBaseModel
 from app.db.entity.enums import SupportedLanguageEnum
 
 

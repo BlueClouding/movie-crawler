@@ -2,8 +2,8 @@ from datetime import datetime
 from typing import List, Optional
 from sqlalchemy import Column, Integer, Text, ARRAY
 
-from app.db.entity.base import DBBaseModel
-from app.db.entity.enums import SupportedLanguageEnum
+from db.entity.base import DBBaseModel
+from src.enums.enums import SupportedLanguageEnum
 
 class Genre(DBBaseModel):
     __tablename__ = "genres"

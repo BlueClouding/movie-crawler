@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer
 
-from app.db.entity.base import DBBaseModel
+from src.db.entity.base import DBBaseModel
 
 class MovieGenre(DBBaseModel):
     __tablename__ = "movie_genres"
