@@ -6,6 +6,11 @@ import urllib
 import logging
 from httpx import Response
 import json
+from sqlalchemy.ext.asyncio import AsyncSession
+
+class MovieDetailInfoService:
+    def __init__(self, db: AsyncSession):
+        self._db = db
 
 def _extract_movie_id(soup: BeautifulSoup, fallback_url: str) -> Optional[str]:
         """Extract movie ID from HTML content using multiple strategies.

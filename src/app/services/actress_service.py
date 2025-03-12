@@ -1,8 +1,8 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.entity.actress import ActressName
-from app.db.entity.enums import SupportedLanguage
-from app.db.entity.movie import Movie
+from common.db.entity.actress import ActressName
+from common.enums.enums import SupportedLanguage
+from common.db.entity.movie import Movie
 from app.repositories.actress_repository import ActressRepository
 from app.repositories.movie_repository import MovieRepository
 from crawler.models.actress import Actress

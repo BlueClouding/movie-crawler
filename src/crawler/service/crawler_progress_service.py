@@ -5,33 +5,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, insert, func
 from app.repositories.genre_repository import GenreRepository
 from fastapi import Depends
-from db.entity.crawler import PagesProgress
-from src.crawler.repository.page_crawler_repository import PageCrawlerRepository
-from src.crawler.repository.movie_crawler_repository import MovieCrawlerRepository
-from src.crawler.models.update_progress import GenrePageProgressUpdate
-from db.entity.crawler import CrawlerProgress
-from db.entity.genre import Genre
-
+from common.db.entity.crawler import CrawlerProgress
+from common.db.entity.genre import Genre
+from common.db.entity.crawler import PagesProgress
+from crawler.repository.crawler_progress_repository import CrawlerProgressRepository
+from crawler.repository.page_crawler_repository import PageCrawlerRepository
+from crawler.repository.movie_crawler_repository import MovieCrawlerRepository
 class CrawlerProgressService:
     """Database progress manager."""
     
-    def __init__(self, language: str, task_id: int, genre_repository: GenreRepository = Depends(GenreRepository),
+    def __init__(self, genre_repository: GenreRepository = Depends(GenreRepository),
         page_crawler_repository: PageCrawlerRepository = Depends(PageCrawlerRepository), 
-        movie_crawler_repository: MovieCrawlerRepository = Depends(MovieCrawlerRepository)
+        movie_crawler_repository: MovieCrawlerRepository = Depends(MovieCrawlerRepository),
+        crawler_progress_repository: CrawlerProgressRepository = Depends(CrawlerProgressRepository)
     ):
         """Initialize progress manager.
         
         Args:
-            language: Language code
-            task_id: ID of the associated crawler task
+            genre_repository: GenreRepository instance for genre operations
+            page_crawler_repository: PageCrawlerRepository instance for page operations
+            movie_crawler_repository: MovieCrawlerRepository instance for movie operations
+            crawler_progress_repository: CrawlerProgressRepository instance for progress operations
         """
-        self._language = language
         self._logger = logging.getLogger(__name__)
-        self._task_id = task_id
-        self._genre_repository = genre_repository
-        self._page_crawler_repository = page_crawler_repository
-        self._movie_crawler_repository = movie_crawler_repository
+        self._genre_repository : GenreRepository = genre_repository
+        self._page_crawler_repository : PageCrawlerRepository = page_crawler_repository
+        self._movie_crawler_repository : MovieCrawlerRepository = movie_crawler_repository
+        self._crawler_progress_repository : CrawlerProgressRepository = crawler_progress_repository
 
+    async def create_crawler_progress(self, crawler_progress: CrawlerProgress):
+        return await self._crawler_progress_repository.create(crawler_progress)
 
     async def get_genre_progress(self, genre_id: int, code: str = None) -> int:
         """Get the last processed page for a genre.
@@ -475,7 +478,7 @@ class CrawlerProgressService:
             # 并返回那些尚未处理详细信息的女演员
             
             # 示例实现（需要根据实际情况调整）
-            from app.db.entity.actress import Actress, ActressName
+            from common.db.entity.actress import Actress, ActressName
             
             # 查询女演员及其名称
             result = await self._session.execute(

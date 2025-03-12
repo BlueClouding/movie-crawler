@@ -2,14 +2,14 @@ from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, join, outerjoin
 
-from app.db.entity.enums import SupportedLanguage
-from app.db.entity.movie import Movie
-from app.db.entity.movie_actress import MovieActress
-from app.db.entity.movie_genres import MovieGenre
-from app.db.entity.movie_info import MovieTitle
-from app.db.entity.actress import Actress, ActressName
-from app.db.entity.genre import Genre, GenreName
-from app.db.entity.download import Magnet, DownloadUrl, WatchUrl
+from common.enums.enums import SupportedLanguage
+from common.db.entity.movie import Movie
+from common.db.entity.movie_actress import MovieActress
+from common.db.entity.movie_genres import MovieGenre
+from common.db.entity.movie_info import MovieTitle
+from common.db.entity.actress import Actress, ActressName
+from common.db.entity.genre import Genre, GenreName
+from common.db.entity.download import Magnet, DownloadUrl, WatchUrl
 from app.repositories.base_repository import BaseRepositoryAsync
 from app.config.database import get_db_session
 from fastapi import Depends

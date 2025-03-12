@@ -9,7 +9,7 @@ def create_app(): # 定义一个工厂函数来创建 app 实例
         version="1.0.0",
     )
 
-    app.include_router(api_router, prefix='/api_v1')
+    app.include_router(api_router, prefix='/api/v1')
 
     @app.get("/")
     def root():

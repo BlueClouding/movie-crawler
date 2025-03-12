@@ -5,25 +5,23 @@ import time
 from typing import Optional, List, Dict, Any
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.entity.movie import Movie
-from app.services.movie_service import MovieService
-from crawler.core import crawler_manager
+from common.db.entity.movie import Movie
 from ..utils.http import create_session
 from ..service.crawler_progress_service import CrawlerProgressService
 from ..parsers.genre_parser import GenreParser
 from ..parsers.movie_parser import MovieParser
 from app.repositories.genre_repository import GenreRepository
-from app.db.entity.genre import Genre
-from app.db.entity.enums import SupportedLanguage
+from common.db.entity.genre import Genre
+from common.enums.enums import SupportedLanguage
 import requests
 from ..service.crawler_progress_service import CrawlerProgressService
 from ..models.genre_info import GenreInfo
-from crawler.service import crawler_progress_service
+
 
 class GenreService:
     """Processor for genre data."""
     
-    def __init__(self, base_url: str, language: str, 
+    def __init__(self,
                  genre_repository: GenreRepository = Depends(GenreRepository),
                  crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService),
                  genre_parser: GenreParser = Depends(GenreParser),
@@ -32,12 +30,11 @@ class GenreService:
         """Initialize GenreProcessor.
 
         Args:
-            base_url: Base URL for the website
-            language: Language code
             genre_repository: GenreRepository instance for genre operations
+            crawler_progress_service: CrawlerProgressService instance for progress tracking
+            genre_parser: GenreParser instance for parsing genre data
+            movie_parser: MovieParser instance for parsing movie data
         """
-        self._base_url : str = base_url
-        self._language : SupportedLanguage = language
         self._logger : logging.Logger = logging.getLogger(__name__)
         self._session : requests.Session = create_session(use_proxy=True)
         self._genre_parser : GenreParser = genre_parser
@@ -100,7 +97,7 @@ class GenreService:
                 self._logger.info(f"Processing genre {i+1}/{max_genres}: {genre_code}")
                 
                 # Get current progress
-                current_page = await crawler_progress_service.get_genre_progress(genre.id, code=genre_code)
+                current_page = await self._crawler_progress_service.get_genre_progress(genre.id, code=genre_code)
                 
                 # Process genre pages
                 total_pages = await self._get_total_pages(genre.urls[0])
@@ -111,7 +108,7 @@ class GenreService:
                 self._logger.info(f"Genre {genre_code} has {total_pages} pages, current progress: {current_page}")
 
                 # Process each page
-                await self._process_genre_pages(genre, total_pages, current_page, progress_manager)
+                await self._process_genre_pages(genre, total_pages, current_page)
             except Exception as genre_error:
                 self._logger.error(f"Error processing genre {genre_code}: {str(genre_error)}")
                 continue
@@ -119,7 +116,7 @@ class GenreService:
         self._logger.info("Successfully processed all genres")
         return True
 
-    async def _process_genre_pages(self, genre: Genre, total_pages: int, current_page: int, progress_manager: DBProgressManager) -> bool:
+    async def _process_genre_pages(self, genre: Genre, total_pages: int, current_page: int) -> bool:
         # Create a new progress manager for each page to avoid session conflicts        
         for page in range(current_page + 1, total_pages + 1):
             try:
@@ -130,7 +127,7 @@ class GenreService:
                 # Create a new session for each page processing
                 async with AsyncSession(create_session()) as new_session:
                     # Create a new progress manager with the new session
-                    page_progress_manager = DBProgressManager(self._language.value if self._language else "ja", progress_manager._task_id)
+                    page_progress_manager = CrawlerProgressService(self._language.value if self._language else "ja", self._task_id)
                     await page_progress_manager.initialize(new_session)
                     
                     if not movies:

@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_services
-from app.db.entity.enums import SupportedLanguage
+from common.enums.enums import SupportedLanguage
 from app.models.request.actress_request import ActressCreate, ActressNameCreate, ActressUpdate
 from app.models.response.actress_response import ActressDetailResponse, ActressResponse
 from app.models.response.movie_response import MovieResponse

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_services
 
-from app.db.entity.enums import SupportedLanguage
+from common.enums.enums import SupportedLanguage
 from app.models.request.genre_request import GenreCreate, GenreNameCreate, GenreUpdate
 from app.models.response.genre_response import GenreDetailResponse, GenreResponse
 from app.models.response.movie_response import MovieResponse

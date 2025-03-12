@@ -3,7 +3,7 @@ from sqlalchemy import select, func, case
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
+from common.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
 from .base_service import BaseService
 
 class CrawlerProgressService(BaseService[CrawlerProgress]):

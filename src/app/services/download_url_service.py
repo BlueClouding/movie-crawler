@@ -2,8 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional, Dict, Any
 
-from app.db.entity.download import DownloadUrl
-from app.db.entity.movie import Movie
+from common.db.entity.download import DownloadUrl
+from common.db.entity.movie import Movie
 from .base_service import BaseService
 
 class DownloadUrlService(BaseService[DownloadUrl]):

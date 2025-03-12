@@ -2,8 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from sqlalchemy import select
 
-from app.db.entity.download import Magnet
-from app.db.entity.movie import Movie # Import select for async queries
+from common.db.entity.download import Magnet
+from common.db.entity.movie import Movie # Import select for async queries
 from .base_service import BaseService
 
 class MagnetService(BaseService[Magnet]):

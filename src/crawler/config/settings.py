@@ -5,7 +5,7 @@ class Settings(BaseSettings):
 
     # Server settings
     SERVER_HOST: str = "localhost"
-    SERVER_PORT: int = 8000
+    SERVER_PORT: int = 8001
     DEBUG: bool = False
     
     # Database settings

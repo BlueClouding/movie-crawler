@@ -6,39 +6,36 @@ import asyncio
 from typing import Optional, Dict, Any
 
 from crawler.service.genre_service import GenreService
-from crawler.service.detail_crawler import DetailCrawler
+from crawler.service.movie_detail_crawler_service import MovieDetailCrawlerService
 from crawler.service.crawler_progress_service import CrawlerProgressService
 from fastapi import Depends
-
+from common.db.entity.crawler import CrawlerProgress
 
 class CrawlerService:
     """Manager for coordinating different crawlers."""
     
-    def __init__(self, base_url: str, task_id: int, language: str = 'ja', threads: int = 1, clear_existing: bool = False, 
+    def __init__(self,
                  genre_service: GenreService = Depends(GenreService),
-                 crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService)):
+                 crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService),
+                 movie_detail_crawler_service: MovieDetailCrawlerService = Depends(MovieDetailCrawlerService)):
         """Initialize CrawlerService.
 
         Args:
-            base_url: Base URL for the website
-            task_id: Task ID for progress tracking
-            language: Language code (en, ja, zh)
-            threads: Number of threads to use
-            clear_existing: Whether to clear existing data
+            genre_service: Genre service instance
+            crawler_progress_service: Crawler progress service instance
+            movie_detail_crawler_service: Movie detail crawler service instance
         """
-        self._base_url = base_url
-        self._language = language
-        self._threads = threads
-        self._clear_existing = clear_existing
-        self._task_id = task_id
         self._logger = logging.getLogger(__name__)
         self._stop_flag = False
         
         # These will be initialized later
         self._crawler_progress_service = crawler_progress_service
         self._genre_service = genre_service
-        self._detail_crawler = None
+        self._movie_detail_crawler_service = movie_detail_crawler_service
         
+    async def create_crawler_progress(self, crawler_progress: CrawlerProgress):
+        self._logger.info(f"Creating crawler progress: {crawler_progress}")
+        return await self._crawler_progress_service.create_crawler_progress(crawler_progress)
         
     async def initialize_and_startGenres(self):
         """Initialize and start the crawler in background."""
@@ -124,7 +121,7 @@ class CrawlerService:
     async def startMovies(self):
         try:
             await self._update_status("processing_movies")
-            if not await self._detail_crawler.process_pending_movies():
+            if not await self._movie_detail_crawler_service.process_pending_movies():
                 await self._update_status("failed", "Failed to process movie details")
                 return False
 
@@ -135,7 +132,7 @@ class CrawlerService:
             # Step 3: Process actress details
             self._logger.info("Successfully processed movie details, starting actress processing")
             await self._update_status("processing_actresses")
-            if not await self._detail_crawler.process_actresses():
+            if not await self._movie_detail_crawler_service.process_actresses():
                 await self._update_status("failed", "Failed to process actress details")
                 return False
 

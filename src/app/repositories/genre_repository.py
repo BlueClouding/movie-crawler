@@ -4,8 +4,9 @@ from sqlalchemy import func, select
 from app.repositories.base_repository import BaseRepositoryAsync
 from app.config.database import get_db_session
 from fastapi import Depends
-from db.entity.genre import Genre, GenreName
-from src.enums.enums import SupportedLanguage
+from common.db.entity.genre import Genre, GenreName
+from common.db.entity.movie import Movie
+from common.enums.enums import SupportedLanguage
 from sqlalchemy.engine.result import Result
 
 class GenreRepository(BaseRepositoryAsync[Genre, int]):

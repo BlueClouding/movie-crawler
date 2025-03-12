@@ -6,6 +6,9 @@ from sqlalchemy import select
 from app.config.database import get_db_session
 from abc import ABC
 
+M = TypeVar("M")  # 模型类型
+K = TypeVar("K")  # 主键类型
+
 class BaseRepositoryAsync(Generic[M, K], ABC):
     def __init__(self, db: AsyncSession = Depends(get_db_session)):
         self.db = db

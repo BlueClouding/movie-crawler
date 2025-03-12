@@ -1,7 +1,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from app.api.deps import get_services
-from app.db.entity.enums import SupportedLanguage
+from common.enums.enums import SupportedLanguage
 from app.models.response.magnet_response import DownloadUrlResponse, MagnetResponse
 from app.models.response.movie_response import MovieDetailResponse, MovieResponse
 from app.models.response.watch_resource_response import WatchUrlResponse

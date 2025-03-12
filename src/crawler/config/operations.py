@@ -4,11 +4,11 @@ import logging
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, update, delete, insert
-from app.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
-from app.db.entity.movie import Movie
-from app.db.entity.genre import Genre
-from app.db.entity.movie_actress import MovieActress
-from app.db.entity.movie_genres import MovieGenre
+from common.db.entity.crawler import CrawlerProgress, PagesProgress, VideoProgress
+from common.db.entity.movie import Movie
+from common.db.entity.genre import Genre
+from common.db.entity.movie_actress import MovieActress
+from common.db.entity.movie_genres import MovieGenre
 
 class DBOperations:
     """Database operations for crawler."""
@@ -120,7 +120,7 @@ class DBOperations:
                     update(PagesProgress)
                     .where(
                         PagesProgress.crawler_progress_id == task_id,
-                        PagesProgress.genre_id == genre_id
+                        PagesProgress.relation_id == genre_id
                     )
                     .values(page_number=page)
                 )

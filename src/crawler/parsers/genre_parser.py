@@ -4,20 +4,14 @@ import logging
 import re
 from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
-from app.db.entity.enums import SupportedLanguage
-from app.db.entity.genre import Genre
 from ..models.genre_info import GenreInfo
+from common.enums.enums import SupportedLanguage
 
 class GenreParser:
     """Parser for genre pages."""
     
-    def __init__(self, language: str = 'ja'):
-        """Initialize GenreParser.
-        
-        Args:
-            language: Language code
-        """
-        self._language : SupportedLanguage = language
+    def __init__(self):
+        """Initialize GenreParser."""
         self._logger : logging.Logger = logging.getLogger(__name__)
     
     def parse_genres_page(self, html_content: str, base_url: str) -> List[GenreInfo]:
@@ -71,7 +65,7 @@ class GenreParser:
                                     url = f'/{url}'
                                 
                                 # 添加语言代码
-                                url = f'/{self._language.value}/{url.lstrip("/")}'
+                                url = f'/{SupportedLanguage.JAPANESE.value}/{url.lstrip("/")}'
                                 url = f'{base_url}{url}'
                                 
                             if genre_name and url:

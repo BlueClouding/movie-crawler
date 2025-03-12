@@ -3,14 +3,14 @@ from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
 from sqlalchemy import and_, select, desc, join
 
-from app.db.entity.enums import SupportedLanguage
-from app.db.entity.genre import Genre, GenreName
-from app.db.entity.movie import Movie
-from app.db.entity.movie_actress import MovieActress
-from app.db.entity.movie_genres import MovieGenre
-from app.db.entity.movie_info import MovieTitle
-from app.db.entity.actress import Actress, ActressName
-from app.db.entity.download import Magnet, DownloadUrl, WatchUrl
+from common.enums.enums import SupportedLanguage
+from common.db.entity.genre import Genre, GenreName
+from common.db.entity.movie import Movie
+from common.db.entity.movie_actress import MovieActress
+from common.db.entity.movie_genres import MovieGenre
+from common.db.entity.movie_info import MovieTitle
+from common.db.entity.actress import Actress, ActressName
+from common.db.entity.download import Magnet, DownloadUrl, WatchUrl
 from app.models.response.movie_response import MovieDetailResponse
 
 from .base_service import BaseService

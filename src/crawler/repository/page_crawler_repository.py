@@ -1,7 +1,7 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.database import get_db_session
-from db.entity.crawler import PagesProgress
+from common.db.entity.crawler import PagesProgress
 from sqlalchemy import select, update
 from sqlalchemy.engine.result import Result
 from app.repositories.base_repository import BaseRepositoryAsync

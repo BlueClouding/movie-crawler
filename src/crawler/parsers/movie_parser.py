@@ -4,18 +4,13 @@ import logging
 import re
 from typing import Dict, Any, Optional, List
 from bs4 import BeautifulSoup
-from crawler.core.movie_detail_info import _extract_movie_id,_extract_m3u8_from_player
-from app.db.entity.movie import Movie
+from crawler.service.movie_detail_info import _extract_movie_id,_extract_m3u8_from_player
+from common.db.entity.movie import Movie
 class MovieParser:
     """Parser for movie detail pages."""
     
-    def __init__(self, language: str = 'ja'):
-        """Initialize MovieParser.
-        
-        Args:
-            language: Language code
-        """
-        self._language = language
+    def __init__(self):
+        """Initialize MovieParser."""
         self._logger = logging.getLogger(__name__)
     
     def parse_movie_page(self, html_content: str, url: str) -> Dict[str, Any]:

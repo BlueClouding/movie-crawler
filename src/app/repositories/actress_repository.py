@@ -1,10 +1,10 @@
 from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from app.db.entity.actress import Actress, ActressName
-from app.db.entity.enums import SupportedLanguage
-from app.db.entity.movie_actress import MovieActress
-from app.db.entity.movie import Movie
+from common.db.entity.actress import Actress, ActressName
+from common.enums.enums import SupportedLanguage
+from common.db.entity.movie_actress import MovieActress
+from common.db.entity.movie import Movie
 from app.repositories.base_repository import BaseRepositoryAsync
 from app.config.database import get_db_session
 from fastapi import Depends
