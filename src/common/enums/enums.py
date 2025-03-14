@@ -20,3 +20,10 @@ class CrawlerStatus(str, enum.Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    STOPPED = "stopped"
+
+class CrawlerTaskType(str, enum.Enum):
+    GENRES = "genres"
+    GENRES_PAGES = "genres_pages"
+    MOVIES = "movies"
+    ACTRESSES = "actresses"

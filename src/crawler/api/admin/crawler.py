@@ -1,6 +1,5 @@
-import logging
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 from enum import Enum
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,16 +15,7 @@ from common.db.entity.crawler import (
 )
 from app.services import ServiceFactory
 from crawler.service.crawler_service import CrawlerService
-
-# 获取日志记录器
-logger = logging.getLogger(__name__)
-
-class Start(str, Enum):
-    GENRES = "genres"
-    GENRES_PAGES = "genres_pages"
-    MOVIES = "movies"
-    ACTRESSES = "actresses"
-
+from common.enums.enums import CrawlerTaskType
 
 
 class CrawlerResponse(BaseModel):
@@ -39,63 +29,30 @@ router = APIRouter()
 async def start_crawler(request: CrawlerRequest, 
     crawler_service: CrawlerService = Depends()):
     """Start the crawler with specified parameters."""
-    # 检查 crawler_service 是否为 None
-    if crawler_service is None:
-        logger.error("crawler_service 为 None，无法启动爬虫")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Crawler service is not available"
+    try:
+       
+        # Start crawler in background task
+        task : CrawlerProgress = await crawler_service.create_crawler_progress(CrawlerProgress(
+            task_type="movie_crawler",
+            status="pending",
+        ))
+        
+        # Initialize crawler in background
+        switch = {
+            CrawlerTaskType.GENRES: crawler_service.initialize_and_startGenres(task.id),
+            CrawlerTaskType.GENRES_PAGES: crawler_service.initialize_and_startGenresPages(task.id),
+            CrawlerTaskType.MOVIES: crawler_service.initialize_and_startMovies(task.id)   
+        }
+        await switch[request.start]()
+        
+        return CrawlerResponse(
+            task_id=task.id,
+            status=CrawlerStatus.PROCESSING.value,
+            message="Crawler started successfully"
         )
-    
-    # 记录开始创建爬虫进度
-    logger.debug("创建爬虫进度记录")
-    
-    # Start crawler in background task
-    task : CrawlerProgress = await crawler_service.create_crawler_progress(CrawlerProgress(
-        task_type="movie_crawler",
-        status="pending",
-    ))
-    
-    logger.info(f"爬虫进度记录创建成功，ID: {task.id}")
-    
-    # Initialize crawler in background
-    logger.debug(f"初始化爬虫，类型: {request.start}")
-    
-    switch = {
-        Start.GENRES: crawler_service.initialize_and_startGenres,
-        Start.GENRES_PAGES: crawler_service.initialize_and_startGenresPages,
-        Start.MOVIES: crawler_service.initialize_and_startMovies
-    }
-    
-    # 检查请求的启动类型是否有效
-    if request.start not in switch:
-        logger.error(f"无效的爬虫启动类型: {request.start}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid crawler start type: {request.start}"
-        )
-    
-    # 获取对应的启动函数
-    start_function = switch[request.start]
-    
-    # 检查启动函数是否为 None
-    if start_function is None:
-        logger.error(f"启动函数为 None，类型: {request.start}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Crawler initialization function is not available for type: {request.start}"
-        )
-    
-    # 调用启动函数
-    logger.info(f"开始执行爬虫启动函数: {start_function.__name__}")
-    await start_function(task.id)
-    
-    logger.info(f"爬虫启动成功，任务ID: {task.id}")
-    return CrawlerResponse(
-        task_id=task.id,
-        status="started",
-        message="Crawler started successfully"
-    )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/stop/{task_id}")
 async def stop_crawler(
@@ -103,40 +60,21 @@ async def stop_crawler(
     services: ServiceFactory = Depends(get_services)
 ):
     """Stop a running crawler task."""
-    # 检查服务是否可用
-    if services is None or services.crawler_progress_service is None:
-        logger.error("服务不可用，无法停止爬虫")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Crawler service is not available"
-        )
-    
-    # 获取任务信息
-    logger.debug(f"获取任务信息，ID: {task_id}")
-    task = await services.crawler_progress_service.get_by_id(task_id)
-    
-    # 检查任务是否存在
-    if not task:
-        logger.warning(f"任务不存在，ID: {task_id}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="Task not found"
-        )
+    try:
+        task = await services.crawler_progress_service.get_by_id(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        if task.status == "completed":
+            raise HTTPException(status_code=400, detail="Task already completed")
+            
+        # Update status to stopped
+        await services.crawler_progress_service.update_status(task_id, "stopped")
         
-    # 检查任务状态
-    if task.status == "completed":
-        logger.warning(f"任务已完成，无法停止，ID: {task_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Task already completed"
-        )
+        return {"message": "Task stopped successfully"}
         
-    # 更新任务状态
-    logger.info(f"更新任务状态为已停止，ID: {task_id}")
-    await services.crawler_progress_service.update_status(task_id, "stopped")
-    
-    logger.info(f"任务已成功停止，ID: {task_id}")
-    return {"message": "Task stopped successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/progress", response_model=List[CrawlerProgressResponse])
 async def get_crawler_progress( # Added async

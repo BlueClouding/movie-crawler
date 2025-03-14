@@ -39,7 +39,7 @@ class MovieDetailCrawlerService:
 
         self._crawler_progress_service = CrawlerProgressService()
 
-    async def process_pending_movies(self) -> bool:
+    async def process_pending_movies(self, task_id:int) -> bool:
         """Process pending movies.
         
         Returns:
@@ -47,7 +47,7 @@ class MovieDetailCrawlerService:
         """
         try:
             # Get pending movies from database
-            pending_movies = await self._crawler_progress_service.get_pending_movies()
+            pending_movies = await self._crawler_progress_service.get_pending_movies(task_id)
             if not pending_movies:
                 self._logger.info("No pending movies to process")
                 return True

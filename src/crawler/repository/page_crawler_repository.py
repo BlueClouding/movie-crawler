@@ -40,6 +40,6 @@ class PageCrawlerRepository(BaseRepositoryAsync[PagesProgress, int]):
         return page_progress_id
 
     async def create_genre_progress(self, page_progress: PagesProgress):
-        await self.db.add(page_progress)
+        self.db.add(page_progress)
         await self.db.commit()
         return page_progress.id

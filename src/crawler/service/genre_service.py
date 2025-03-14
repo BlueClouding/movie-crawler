@@ -47,7 +47,7 @@ class GenreService:
         self._max_pages : Optional[int] = None   # 默认不限制
         
     # 拆分 genres 处理和 page 处理
-    async def process_genres(self) -> bool:
+    async def process_genres(self, base_url: str, language: str) -> bool:
         """Process and save genres.
         
         Returns:
@@ -57,7 +57,7 @@ class GenreService:
         try:
             # Fetch genres
             self._logger.info("Processing genres...")
-            genres : List[GenreInfo] = await self._fetch_genres()
+            genres : List[GenreInfo] = await self._fetch_genres(base_url, language)
             if not genres:
                 self._logger.error("Failed to fetch genres")
                 return False
@@ -84,7 +84,7 @@ class GenreService:
             return False
 
 
-    async def process_genres_pages(self) -> bool:
+    async def process_genres_pages(self, task_id: int) -> bool:
         # Process each genre
         all_genres = await self._get_all_genres()
         max_genres = self._max_genres if self._max_genres is not None else len(all_genres)
@@ -182,21 +182,14 @@ class GenreService:
             
     
     
-    async def _fetch_genres(self) -> list:
+    async def _fetch_genres(self, base_url: str, language: str) -> list:
         """Fetch all available genres from the website.
         
         Returns:
             list: List of genre dictionaries
         """
         try:
-            # 根据测试结果使用正确的URL路径
-            if self._language:
-                # 正确的URL是 base_url/language/genres
-                url = f"{self._base_url}/{self._language.value}/genres"
-            else:
-                # 如果没有语言参数，则使用默认路径
-                url = f"{self._base_url}/genres"
-                
+            url = f"{base_url}/{language}/genres"
             self._logger.info(f"Fetching genres from: {url}")
             response = self._session.get(url, timeout=10)
             
@@ -204,7 +197,7 @@ class GenreService:
                 self._logger.error(f"Failed to fetch genres: HTTP {response.status_code}")
                 return []
             
-            genres : List[GenreInfo] = self._genre_parser.parse_genres_page(response.text, self._base_url)
+            genres : List[GenreInfo] = self._genre_parser.parse_genres_page(response.text, base_url)
             self._logger.info(f"Found {len(genres)} genres")
             return genres
             
