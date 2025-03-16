@@ -190,9 +190,6 @@ class CrawlerProgressService:
         except Exception as e:
             self._logger.error(f"Error updating task status: {str(e)}")
             
-    async def clear_progress(self):
-        """Clear all progress data for current language."""
-            
         try:
             # Delete all progress records
             await self._page_crawler_repository.db.execute(delete(PagesProgress))

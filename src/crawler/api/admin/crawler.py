@@ -13,10 +13,9 @@ from common.db.entity.crawler import (
     VideoProgressCreate, VideoProgressResponse,
     CrawlerProgressSummary
 )
-from app.services import ServiceFactory
 from crawler.service.crawler_service import CrawlerService
 from common.enums.enums import CrawlerTaskType
-
+from common.enums.enums import CrawlerStatus
 
 class CrawlerResponse(BaseModel):
     task_id: int

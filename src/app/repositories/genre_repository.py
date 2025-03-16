@@ -8,6 +8,7 @@ from common.db.entity.genre import Genre, GenreName
 from common.db.entity.movie import Movie
 from common.enums.enums import SupportedLanguage
 from sqlalchemy.engine.result import Result
+from sqlalchemy import update
 
 class GenreRepository(BaseRepositoryAsync[Genre, int]):
     def __init__(self, db: AsyncSession = Depends(get_db_session)):
@@ -17,11 +18,11 @@ class GenreRepository(BaseRepositoryAsync[Genre, int]):
         self, name: str, language: SupportedLanguage = None
     ) -> Optional[Genre]:
         """根据名称获取类型"""
-        query = select(Genre).join(GenreName).where(
+        query = select(Genre).join(GenreName, Genre.id == GenreName.genre_id).where(
             GenreName.name == name,
             GenreName.language == language if language else True
         )
-        result = await self.db.execute(query)
+        result: Result = await self.db.execute(query)
         return result.scalars().first()
         
     async def get_by_code(
@@ -50,7 +51,7 @@ class GenreRepository(BaseRepositoryAsync[Genre, int]):
         
         query = query.filter(GenreName.name.ilike(f"%{name}%"))
         query = query.offset(skip).limit(limit)
-        result = await self.db.execute(query)
+        result : Result = await self.db.execute(query)
         return result.scalars().all()
     
     async def get_with_names(
@@ -97,30 +98,42 @@ class GenreRepository(BaseRepositoryAsync[Genre, int]):
         return movie_result.scalars().all()
     
     async def create_with_names(
-        self, name: Dict[str, str], urls: List[str] = None, code: str = None
+        self, language: str, name: str, urls: List[str] = None, code: str = None
     ) -> Genre:
-        """创建类型及其多语言名称
-        
+        """创建类型及其多语言名称或更新现有类型的 URL。
+
         Args:
-            name: 多语言名称列表，每个元素包含name和language
-            urls: URL列表
+            language: 语言
+            name: 名称
+            urls: URL 列表
             code: 类型代码
-            
+
         Returns:
-            Genre: 创建的类型对象
+            Genre: 创建或更新的类型对象
         """
-        # 创建类型
-        db_genre = Genre(urls=urls or [], code=code)
-        self.db.add(db_genre)
-        await self.db.flush()  # 获取ID但不提交
-        
-        # 添加名称
-        db_name = GenreName(language=name['language'], name=name['name'], genre_id=db_genre.id)
-        self.db.add(db_name)
-        
-        await self.db.commit()
-        await self.db.refresh(db_genre)
-        return db_genre
+        db_genre: Genre = await self.get_by_name(name=name, language=SupportedLanguage(language))
+
+        if db_genre:
+            # 如果已存在，则更新 URL
+            if urls:
+                # 使用 set 避免重复 URL
+                existing_urls = set(db_genre.urls or [])
+                new_urls = set(urls)
+                db_genre.urls = list(existing_urls.union(new_urls))  # 合并并转换为列表
+            await self.db.commit()
+            await self.db.refresh(db_genre)
+        else:
+            # 如果不存在，则创建
+            db_genre = Genre(urls=urls or [], code=code)
+            self.db.add(db_genre)
+            await self.db.flush()  # 获取 ID 但不提交
+
+            # 添加名称
+            db_name = GenreName(language=SupportedLanguage(language), name=name, genre_id=db_genre.id)
+            self.db.add(db_name)
+
+            await self.db.commit()
+            await self.db.refresh(db_genre)
     
     async def get_popular(
         self, skip: int = 0, limit: int = 100

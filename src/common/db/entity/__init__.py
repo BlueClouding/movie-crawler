@@ -1,6 +1,16 @@
 """Core crawler components"""
 
-from common.db.entity.base import DBBaseModel
+# Import base first to avoid circular imports
+from common.db.entity.base import DBBaseModel, Base
+
+# Only expose what's needed to avoid circular imports
+__all__ = [
+    'DBBaseModel', 'Base', 'Movie', 'MovieTitle', 'Actress', 'ActressName',
+    'Genre', 'GenreName', 'Magnet', 'DownloadUrl', 'WatchUrl',
+    'CrawlerProgress', 'PagesProgress', 'VideoProgress', 'SupportedLanguage'
+]
+
+# Lazy imports to avoid circular dependencies
 from common.db.entity.movie import Movie
 from common.db.entity.movie_info import MovieTitle
 from common.db.entity.actress import Actress, ActressName

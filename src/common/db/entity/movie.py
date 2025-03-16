@@ -5,7 +5,6 @@ from sqlalchemy import Column, DateTime, String, Integer, Date, Text, Interval, 
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declared_attr
 from pydantic import BaseModel, ConfigDict
-from app.config.database import Base
 from common.db.entity.base import DBBaseModel
 from common.enums.enums import SupportedLanguage
 

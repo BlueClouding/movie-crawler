@@ -12,7 +12,7 @@ from ..parsers.genre_parser import GenreParser
 from ..parsers.movie_parser import MovieParser
 from app.repositories.genre_repository import GenreRepository
 from common.db.entity.genre import Genre
-from common.enums.enums import SupportedLanguage
+from common.enums.enums import SupportedLanguage, SupportedLanguageEnum
 import requests
 from ..service.crawler_progress_service import CrawlerProgressService
 from ..models.genre_info import GenreInfo
@@ -71,10 +71,7 @@ class GenreService:
             self._logger.info(f"Processing up to {max_genres} genres")
 
             # 先把所有genres保存到数据库
-            saved_genres = await self.save_genres_to_db(genres)
-            if not saved_genres:
-                self._logger.error("Failed to save genres to database")
-                return False
+            await self.save_genres_to_db(genres, language)
             
             self._logger.info("Successfully processed all genres")
             return True
@@ -206,53 +203,6 @@ class GenreService:
             self._logger.error(f"Error fetching genres: {str(e)}", exc_info=True)
             return []
             
-    async def _get_or_create_genre_by_code(self, code: str, genre: Dict[str, Any]) -> Optional[int]:
-        """根据 code 查询或创建 genre
-        
-        Args:
-            code: 类型代码
-            genre: 类型信息字典
-            
-        Returns:
-            Optional[int]: 类型 ID，如果发生错误则返回 None
-        """
-        try:
-            # First try to get the genre by code
-            db_genre = None
-            async with self._db_session.begin():
-                db_genre = await self._genre_repository.get_by_code(
-                    self._db_session, code=code
-                )
-                
-            if db_genre:
-                # If found, return its ID
-                self._logger.info(f"Found existing genre with code {code}, id: {db_genre.id}")
-                return db_genre.id
-            
-            # If not found, create a new genre in a separate transaction
-            async with self._db_session.begin():
-                # 准备多语言名称数据
-                name = {
-                    "name": genre['name'],
-                    "language": SupportedLanguage(self._language) if self._language else SupportedLanguage.ja
-                }
-                
-                # 创建新的 genre，直接传入 code 参数
-                new_genre = await self._genre_repository.create_with_names(
-                    self._db_session,
-                    name=name,
-                    urls=[genre['url']] if 'url' in genre else [],
-                    code=code
-                )
-                
-                self._logger.info(f"Created new genre with code {code}, id: {new_genre.id}")
-                return new_genre.id
-        except Exception as e:
-            # 使用exc_info=True记录完整的堆栈跟踪信息
-            self._logger.error(f"Error in _get_or_create_genre_by_code: {str(e)}", exc_info=True)
-            # No need to manually rollback with async with begin()
-            return None
-            
     async def _get_total_pages(self, url: str) -> Optional[int]:
         """Get total number of pages for a genre.
         
@@ -359,7 +309,7 @@ class GenreService:
             self._logger.error(f"Error processing page {page}: {str(e)}")
             return []
 
-    async def save_genres_to_db(self, genre_infos: List[GenreInfo]):
+    async def save_genres_to_db(self, genre_infos: List[GenreInfo], language: str):
         """Save genres to database.
         
         Args:
@@ -368,8 +318,6 @@ class GenreService:
         Returns:
             List of saved Genre objects
         """
-        saved_genres = []
-        
         # Process genres one by one with proper transaction handling
         for genre_info in genre_infos:
             try:
@@ -380,29 +328,22 @@ class GenreService:
                 
                 if existing_genre:
                     self._logger.info(f"Genre with code {genre_info.code} already exists, skipping creation")
-                    saved_genres.append(existing_genre)
                     continue
                     
                 # Create new genre if it doesn't exist in a separate transaction
-                db_genre = await self._genre_repository.create_with_names(
+                await self._genre_repository.create_with_names(
                     urls=[genre_info.url],
-                    name = {
-                        'language': SupportedLanguage(self._language) if self._language else SupportedLanguage.ja,
-                        'name': genre_info.name
-                    },
+                    language=language,
+                    name=genre_info.name,
                     code=genre_info.code
                 )
-                    
-                saved_genres.append(db_genre)
                 self._logger.info(f"Created new genre: {genre_info.name} with code {genre_info.code}")
             except Exception as genre_error:
                 self._logger.error(f"Error processing genre {genre_info.name}: {str(genre_error)}", exc_info=True)
                 # No need to manually rollback with async with begin()
                 # Continue with next genre instead of failing the entire batch
                 continue
-                
-        self._logger.info(f"Successfully saved {len(saved_genres)} genres to database")
-        return saved_genres
+       
             
     async def _get_genre_name(self, genre_id: int) -> str:
         """Get genre name by genre id.

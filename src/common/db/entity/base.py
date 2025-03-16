@@ -1,9 +1,13 @@
 from datetime import datetime
 from pydantic import BaseModel
 from sqlalchemy import Column, Integer, DateTime, func
-from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.ext.declarative import declared_attr, declarative_base
 
-from app.config.database import Base
+# Create a base class that can be used without importing from app
+# This is the single source of truth for the SQLAlchemy Base class
+Base = declarative_base()
+
+__all__ = ['DBBaseModel', 'Base']
 
 class DBBaseModel(Base):
     """所有模型的基类"""
