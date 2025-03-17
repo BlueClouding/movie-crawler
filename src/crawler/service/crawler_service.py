@@ -61,6 +61,8 @@ class CrawlerService:
     #startGenresPages
     async def initialize_and_startGenresPages(self, crawler_progress_id: int):
         """Initialize and start the crawler in background."""
+        await self._update_status(crawler_progress_id, CrawlerStatus.PROCESSING.value)
+        self._logger.info("Starting genre pages processing...")
         # 创建异步任务在后台运行
         asyncio.create_task(self._run_genres_pages_task(crawler_progress_id))
         self._logger.info(f"已在后台启动类型页面爬取任务，任务ID: {crawler_progress_id}")
@@ -68,12 +70,12 @@ class CrawlerService:
         
     async def _run_genres_pages_task(self, crawler_progress_id: int):
         """在后台运行类型页面爬取任务"""
-        try:
-            await self.startGenresPages(crawler_progress_id)
-        except Exception as e:
-            self._logger.error(f"Error in crawler background task: {str(e)}")
+        if not await self.startGenresPages(crawler_progress_id):
             await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
             return False
+        await self._update_status(crawler_progress_id, CrawlerStatus.COMPLETED.value)
+        return True
+    
 
     async def initialize_and_startMovies(self, crawler_progress_id: int):
         """Initialize and start the crawler in background."""
@@ -84,12 +86,11 @@ class CrawlerService:
         
     async def _run_movies_task(self, crawler_progress_id: int):
         """在后台运行电影详情爬取任务"""
-        try:
-            await self.startMovies(crawler_progress_id)
-        except Exception as e:
-            self._logger.error(f"Error in crawler background task: {str(e)}")
+        if not await self.startMovies(crawler_progress_id):
             await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
             return False
+        await self._update_status(crawler_progress_id, CrawlerStatus.COMPLETED.value)
+        return True
     
         
     async def startGenres(self, crawler_progress_id: int, base_url: str, language: str):
@@ -118,13 +119,9 @@ class CrawlerService:
 
     async def startGenresPages(self, crawler_progress_id: int):
         try:
-            await self._update_status(crawler_progress_id, CrawlerStatus.PROCESSING.value)
-            self._logger.info("Starting genre pages processing...")
             if not await self._genre_service.process_genres_pages(crawler_progress_id):
                 await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
                 return False
-
-            await self._update_status(crawler_progress_id, CrawlerStatus.COMPLETED.value)
             return True
         except Exception as e:
             error_msg = f"Error processing genre pages: {str(e)}"

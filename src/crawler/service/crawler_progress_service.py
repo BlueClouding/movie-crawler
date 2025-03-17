@@ -132,26 +132,28 @@ class CrawlerProgressService:
         """
         try:
             # Query genres table for logging purposes
-            db_genre : Genre = await self._genre_repository.get_by_code(code)
-            if db_genre:
-                self._logger.info(f"Creating genre progress for code {code}, id: {db_genre.id}")
-
-                result = await self._page_crawler_repository.create_genre_progress(
-                    PagesProgress(
-                        crawler_progress_id=task_id,
-                        relation_id=genre_id,
-                        page_type='genre',
-                        page_number=page,
-                        total_pages=total_pages,
-                        total_items=total_items,
-                        status=status
+            check_exist : bool = await self._page_crawler_repository.check_exist_by_relation_id_and_page_number(genre_id, page)
+            if check_exist:
+                return await self._page_crawler_repository.update_page_progress(
+                    page_progress_id=check_exist,
+                    update_values=GenrePageProgressUpdate(
+                        page=page, total_pages=total_pages, code=code, status=status, total_items=total_items
                     )
                 )
-                return result
-            else:
-                self._logger.warning(f"Genre with code {code} not found in genres table, creating progress with provided genre_id: {genre_id}")
-        except Exception as code_error:
-            self._logger.error(f"Error querying genre by code during create progress: {str(code_error)}")
+            result : int = await self._page_crawler_repository.create_genre_progress(
+                PagesProgress(
+                    crawler_progress_id=task_id,
+                    relation_id=genre_id,
+                    page_type='genre',
+                    page_number=page,
+                    total_pages=total_pages,
+                    total_items=total_items,
+                    status=status
+                )
+            )
+            return result
+        except Exception as e:
+            self._logger.error(f"Error creating genre progress: {str(e)}")
             return None
 
     async def update_page_progress(self, page_progress_id: int, status: str, processed_items: int = None):

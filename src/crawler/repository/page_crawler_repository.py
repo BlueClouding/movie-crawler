@@ -43,3 +43,15 @@ class PageCrawlerRepository(BaseRepositoryAsync[PagesProgress, int]):
         self.db.add(page_progress)
         await self.db.commit()
         return page_progress.id
+
+    #check if exist By relationIdAndPageNumber
+    async def check_exist_by_relation_id_and_page_number(self, genre_id: int, page_number: int) -> bool:
+        result : Result = await self.db.execute(
+            select(PagesProgress)
+            .filter(
+                PagesProgress.relation_id == genre_id,
+                PagesProgress.page_number == page_number
+            )
+            .limit(1)
+        )
+        return result.scalar() is not None
