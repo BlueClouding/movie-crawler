@@ -164,10 +164,7 @@ class CrawlerProgressService:
         """
         try:
             # Prepare update values
-            update_values = {"status": status}
-            if processed_items is not None:
-                update_values["processed_items"] = processed_items
-                
+            update_values = GenrePageProgressUpdate(status=status)     
             # Execute update
             await self._page_crawler_repository.update_page_progress(page_progress_id, update_values)
             
@@ -177,19 +174,29 @@ class CrawlerProgressService:
             self._logger.error(f"Error updating page progress: {str(e)}")
             return False
             
-    async def update_task_status(self, task_id: int, status: str, message: Optional[str] = None):
+    async def update_task_status(self, task_id: int, status: str):
         """Update task status.
         
         Args:
             task_id: Task ID
             status: New status
-            message: Optional status message
         """
         try:
-            await self._crawler_progress_repository.update_status(CrawlerProgress(id=task_id, status=status))
+            # 创建一个新的CrawlerProgress对象，只包含ID和状态
+            progress = CrawlerProgress(id=task_id, status=status)
+            # 调用repository的update_status方法更新状态
+            result = await self._crawler_progress_repository.update_status(progress)
+            if result:
+                self._logger.info(f"成功更新任务状态: 任务ID={task_id}, 状态={status}")
+            else:
+                self._logger.warning(f"无法更新任务状态: 任务ID={task_id}, 状态={status}")
+            return result
         except Exception as e:
+            # 记录错误但不重新抛出，避免影响调用者
             self._logger.error(f"Error updating task status: {str(e)}")
-            
+            return None
+        
+    async def clear_progress(self, task_id: int):
         try:
             # Delete all progress records
             await self._page_crawler_repository.db.execute(delete(PagesProgress))

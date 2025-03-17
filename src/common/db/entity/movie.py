@@ -21,7 +21,7 @@ class Movie(DBBaseModel):
     
     code = Column(String(50), nullable=False, index=True)
     duration = Column(String(50), nullable=False)
-    release_date = Column(String(50), nullable=False)
+    release_date = Column(String(50), nullable=True)
     cover_image_url = Column(Text)
     preview_video_url = Column(Text)
     thumbnail = Column(Text)  # 新增缩略图字段

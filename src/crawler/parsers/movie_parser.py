@@ -218,7 +218,7 @@ class MovieParser:
                                     # 使用正则表达式提取ID
                                     id_match = re.search(r"Favourite\('movie', (\d+)", v_scope)
                                     if id_match:
-                                        movie.id = id_match.group(1)
+                                        movie.original_id = int(id_match.group(1))
                             
                             # 提取电影标题
                             # 首先尝试从detail区域获取标题
@@ -231,7 +231,6 @@ class MovieParser:
                                 # 获取链接
                                 url = detail_div.get('href', '')
                                 if url:
-                                    movie.url = url
                                     # 处理URL格式
                                     if not url.startswith('http'):
                                         # 如果是相对路径，添加域名
@@ -239,7 +238,7 @@ class MovieParser:
                                             url = f'{base_url}{url}'
                                         else:
                                             url = f'{base_url}/{url}'
-                                    movie.url = url
+                                    movie.link = url
                             
                             # Get thumbnail
                             img = item.select_one('img')
@@ -265,7 +264,7 @@ class MovieParser:
                                 movie.duration = duration_elem.get_text(strip=True)
                             
                             # 如果有URL就添加，不必要求有code
-                            if movie.url:
+                            if movie.link:
                                 self._logger.info(f"Found movie: {movie}")
                                 movies.append(movie)
                             else:

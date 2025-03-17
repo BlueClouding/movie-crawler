@@ -11,6 +11,7 @@ from crawler.service.crawler_progress_service import CrawlerProgressService
 from fastapi import Depends
 from common.db.entity.crawler import CrawlerProgress
 from common.enums.enums import CrawlerStatus
+import asyncio
 
 class CrawlerService:
     """Manager for coordinating different crawlers."""
@@ -58,22 +59,36 @@ class CrawlerService:
     #         return False
 
     #startGenresPages
-    async def initialize_and_startGenresPages(self):
+    async def initialize_and_startGenresPages(self, crawler_progress_id: int):
         """Initialize and start the crawler in background."""
+        # 创建异步任务在后台运行
+        asyncio.create_task(self._run_genres_pages_task(crawler_progress_id))
+        self._logger.info(f"已在后台启动类型页面爬取任务，任务ID: {crawler_progress_id}")
+        return True
+        
+    async def _run_genres_pages_task(self, crawler_progress_id: int):
+        """在后台运行类型页面爬取任务"""
         try:
-            await self.startGenresPages()
+            await self.startGenresPages(crawler_progress_id)
         except Exception as e:
             self._logger.error(f"Error in crawler background task: {str(e)}")
-            await self._update_status("failed", str(e))
+            await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
             return False
 
     async def initialize_and_startMovies(self, crawler_progress_id: int):
         """Initialize and start the crawler in background."""
+        # 创建异步任务在后台运行
+        asyncio.create_task(self._run_movies_task(crawler_progress_id))
+        self._logger.info(f"已在后台启动电影详情爬取任务，任务ID: {crawler_progress_id}")
+        return True
+        
+    async def _run_movies_task(self, crawler_progress_id: int):
+        """在后台运行电影详情爬取任务"""
         try:
             await self.startMovies(crawler_progress_id)
         except Exception as e:
             self._logger.error(f"Error in crawler background task: {str(e)}")
-            await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value, str(e))
+            await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
             return False
     
         
@@ -85,7 +100,7 @@ class CrawlerService:
             # Step 1: Process genres
             await self._update_status(crawler_progress_id, CrawlerStatus.PROCESSING.value)
             if not await self._genre_service.process_genres(base_url, language):
-                await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value, "Failed to process genres")
+                await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
                 return False
 
             if self._stop_flag:
@@ -98,54 +113,52 @@ class CrawlerService:
         except Exception as e:
             error_msg = f"Error in crawler manager: {str(e)}"
             self._logger.error(error_msg)
-            await self._update_status(crawler_progress_id, "failed", error_msg)
+            await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
             return False
 
     async def startGenresPages(self, crawler_progress_id: int):
         try:
-            await self._update_status(crawler_progress_id, "processing_genre_pages")
-            if not await self._genre_service.process_genres_pages():
-                await self._update_status(crawler_progress_id, "failed", "Failed to process genre pages")
+            await self._update_status(crawler_progress_id, CrawlerStatus.PROCESSING.value)
+            self._logger.info("Starting genre pages processing...")
+            if not await self._genre_service.process_genres_pages(crawler_progress_id):
+                await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
                 return False
 
-            if self._stop_flag:
-                await self._update_status(crawler_progress_id, "stopped")
-                return False
-
+            await self._update_status(crawler_progress_id, CrawlerStatus.COMPLETED.value)
             return True
         except Exception as e:
             error_msg = f"Error processing genre pages: {str(e)}"
             self._logger.error(error_msg)
-            await self._update_status(crawler_progress_id, "failed", error_msg)
+            await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
             return False
 
     async def startMovies(self, crawler_progress_id: int):
         try:
-            await self._update_status(crawler_progress_id, "processing_movies")
+            await self._update_status(crawler_progress_id, CrawlerStatus.PROCESSING.value)
             if not await self._movie_detail_crawler_service.process_pending_movies(crawler_progress_id):
-                await self._update_status(crawler_progress_id, "failed", "Failed to process movie details")
+                await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
                 return False
 
             if self._stop_flag:
-                await self._update_status(crawler_progress_id, "stopped")
+                await self._update_status(crawler_progress_id, CrawlerStatus.STOPPED.value)
                 return False
 
             # Step 3: Process actress details
             self._logger.info("Successfully processed movie details, starting actress processing")
-            await self._update_status(crawler_progress_id, "processing_actresses")
+            await self._update_status(crawler_progress_id, CrawlerStatus.PROCESSING.value)
             if not await self._movie_detail_crawler_service.process_actresses():
-                await self._update_status(crawler_progress_id, "failed", "Failed to process actress details")
+                await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
                 return False
 
             if self._stop_flag:
-                await self._update_status(crawler_progress_id, "stopped")
+                await self._update_status(crawler_progress_id, CrawlerStatus.STOPPED.value)
                 return False
 
             return True
         except Exception as e:
             error_msg = f"Error processing movie details: {str(e)}"
             self._logger.error(error_msg)
-            await self._update_status(crawler_progress_id, "failed", error_msg)
+            await self._update_status(crawler_progress_id, CrawlerStatus.FAILED.value)
             return False
 
     async def stop(self, crawler_progress_id: int):

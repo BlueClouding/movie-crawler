@@ -111,29 +111,16 @@ class GenreRepository(BaseRepositoryAsync[Genre, int]):
         Returns:
             Genre: 创建或更新的类型对象
         """
-        db_genre: Genre = await self.get_by_name(name=name, language=SupportedLanguage(language))
+        db_genre = Genre(urls=urls or [], code=code)
+        self.db.add(db_genre)
+        await self.db.flush()  # 获取 ID 但不提交
 
-        if db_genre:
-            # 如果已存在，则更新 URL
-            if urls:
-                # 使用 set 避免重复 URL
-                existing_urls = set(db_genre.urls or [])
-                new_urls = set(urls)
-                db_genre.urls = list(existing_urls.union(new_urls))  # 合并并转换为列表
-            await self.db.commit()
-            await self.db.refresh(db_genre)
-        else:
-            # 如果不存在，则创建
-            db_genre = Genre(urls=urls or [], code=code)
-            self.db.add(db_genre)
-            await self.db.flush()  # 获取 ID 但不提交
+        # 添加名称
+        db_name = GenreName(language=SupportedLanguage(language), name=name, genre_id=db_genre.id)
+        self.db.add(db_name)
 
-            # 添加名称
-            db_name = GenreName(language=SupportedLanguage(language), name=name, genre_id=db_genre.id)
-            self.db.add(db_name)
-
-            await self.db.commit()
-            await self.db.refresh(db_genre)
+        await self.db.commit()
+        await self.db.refresh(db_genre)
     
     async def get_popular(
         self, skip: int = 0, limit: int = 100
@@ -167,5 +154,5 @@ class GenreRepository(BaseRepositoryAsync[Genre, int]):
     # get all genres
     async def get_all(self) -> List[Genre]:
         query = select(Genre)
-        result = await self.db.execute(query)
+        result : Result = await self.db.execute(query)
         return result.scalars().all()

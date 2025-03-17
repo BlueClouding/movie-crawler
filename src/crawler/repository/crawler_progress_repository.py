@@ -19,10 +19,29 @@ class CrawlerProgressRepository(BaseRepositoryAsync[CrawlerProgress, int]):
         return crawler_progress
 
     async def update_status(self, crawler_progress: CrawlerProgress):
-        await self.db.execute(
-            update(CrawlerProgress)
-            .where(CrawlerProgress.id == crawler_progress.id)
-            .values(status=crawler_progress.status)
-        )
-        await self.db.commit()
-        await self.db.refresh(crawler_progress)
+        """更新爬虫任务状态。
+        
+        Args:
+            crawler_progress: 包含ID和状态的爬虫进度对象
+        """
+        try:
+            # 检查会话状态
+            if self.db.is_active:
+                await self.db.execute(
+                    update(CrawlerProgress)
+                    .where(CrawlerProgress.id == crawler_progress.id)
+                    .values(status=crawler_progress.status)
+                )
+                await self.db.commit()
+                return crawler_progress
+            else:
+                # 如果会话不活跃，记录错误并返回
+                print(f"会话不活跃，无法更新状态: {crawler_progress.id}")
+                return None
+        except Exception as e:
+            # 只在事务活跃时尝试回滚
+            if self.db.is_active:
+                await self.db.rollback()
+            print(f"更新状态时发生错误: {str(e)}")
+            # 重新抛出异常，让调用者处理
+            raise e

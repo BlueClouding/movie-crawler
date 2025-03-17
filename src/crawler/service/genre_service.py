@@ -16,7 +16,7 @@ from common.enums.enums import SupportedLanguage, SupportedLanguageEnum
 import requests
 from ..service.crawler_progress_service import CrawlerProgressService
 from ..models.genre_info import GenreInfo
-
+from ..repository.movie_crawler_repository import MovieCrawlerRepository
 
 class GenreService:
     """Processor for genre data."""
@@ -24,6 +24,7 @@ class GenreService:
     def __init__(self,
                  genre_repository: GenreRepository = Depends(GenreRepository),
                  crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService),
+                 movie_crawler_repository: MovieCrawlerRepository = Depends(MovieCrawlerRepository),
                  genre_parser: GenreParser = Depends(GenreParser),
                  movie_parser: MovieParser = Depends(MovieParser)
     ):
@@ -41,6 +42,7 @@ class GenreService:
         self._movie_parser : MovieParser = movie_parser
         self._genre_repository : GenreRepository = genre_repository
         self._crawler_progress_service : CrawlerProgressService = crawler_progress_service
+        self._movie_crawler_repository : MovieCrawlerRepository = movie_crawler_repository
         
         # 限制爬取的类型数量和页数
         self._max_genres : Optional[int] = None  # 默认不限制
@@ -83,21 +85,21 @@ class GenreService:
 
     async def process_genres_pages(self, task_id: int) -> bool:
         # Process each genre
-        all_genres = await self._get_all_genres()
-        max_genres = self._max_genres if self._max_genres is not None else len(all_genres)
+        all_genres : List[Genre] = await self._genre_repository.get_all()
+        max_genres : int = self._max_genres if self._max_genres is not None else len(all_genres)
         self._logger.info(f"Processing up to {max_genres} genres")
 
         for i, genre in enumerate(all_genres[:max_genres]):
             try:
                 # 使用 genre 中的 code 字段
-                genre_code = genre.code
+                genre_code : str = genre.code
                 self._logger.info(f"Processing genre {i+1}/{max_genres}: {genre_code}")
                 
                 # Get current progress
-                current_page = await self._crawler_progress_service.get_genre_progress(genre.id, code=genre_code)
+                current_page : int = await self._crawler_progress_service.get_genre_progress(genre.id, code=genre_code, task_id=task_id)
                 
                 # Process genre pages
-                total_pages = await self._get_total_pages(genre.urls[0])
+                total_pages : int = await self._get_total_pages(genre.urls[0])
                 if not total_pages:
                     self._logger.warning(f"Could not determine total pages for genre {genre_code}, skipping")
                     continue
@@ -105,7 +107,7 @@ class GenreService:
                 self._logger.info(f"Genre {genre_code} has {total_pages} pages, current progress: {current_page}")
 
                 # Process each page
-                await self._process_genre_pages(genre, total_pages, current_page)
+                await self._process_genre_pages(genre, total_pages, current_page, task_id)
             except Exception as genre_error:
                 self._logger.error(f"Error processing genre {genre_code}: {str(genre_error)}")
                 continue
@@ -113,63 +115,52 @@ class GenreService:
         self._logger.info("Successfully processed all genres")
         return True
 
-    async def _process_genre_pages(self, genre: Genre, total_pages: int, current_page: int) -> bool:
+    async def _process_genre_pages(self, genre: Genre, total_pages: int, current_page: int, task_id: int) -> bool:
         # Create a new progress manager for each page to avoid session conflicts        
         for page in range(current_page + 1, total_pages + 1):
             try:
                 # Process page and get movie data
                 self._logger.info(f"Processing page {page}/{total_pages} for genre {genre.code}")
-                movies = await self._process_page(genre.urls[0], page)
+                movies : List[Movie] = await self._process_page(genre.urls[0], page)
                 
-                # Create a new session for each page processing
-                async with AsyncSession(create_session()) as new_session:
-                    # Create a new progress manager with the new session
-                    page_progress_manager = CrawlerProgressService(self._language.value if self._language else "ja", self._task_id)
-                    await page_progress_manager.initialize(new_session)
-                    
-                    if not movies:
-                        self._logger.warning(f"No movies found on page {page} for genre {genre.code}")
-                        # Create progress record anyway to mark this page as processed
-                        await page_progress_manager.create_genre_progress(
-                            genre_id=genre.id,
-                            page=page,
-                            total_pages=total_pages,
-                            code=genre.code,
-                            status='completed',
-                            total_items=0
-                        )
-                        await new_session.commit()
-                        continue
-                        
-                    # Create progress record for this page
-                    page_progress_id = await page_progress_manager.create_genre_progress(
+                if not movies:
+                    self._logger.warning(f"No movies found on page {page} for genre {genre.code}")
+                    # Create progress record anyway to mark this page as processed
+                    await self._crawler_progress_service.create_genre_progress(
                         genre_id=genre.id,
                         page=page,
                         total_pages=total_pages,
                         code=genre.code,
-                        status='processing',
-                        total_items=len(movies)
+                        status='completed',
+                        total_items=0
                     )
-                    
-                    if not page_progress_id:
-                        self._logger.error(f"Failed to create progress record for page {page} of genre {genre.code}")
-                        continue
+                    continue
+                        
+                # Create progress record for this page
+                page_progress_id : int = await self._crawler_progress_service.create_genre_progress(
+                    genre_id=genre.id,
+                    page=page,
+                    total_pages=total_pages,
+                    code=genre.code,
+                    status='processing',
+                    total_items=len(movies),
+                    task_id=task_id
+                )
+                
+                if not page_progress_id:
+                    self._logger.error(f"Failed to create progress record for page {page} of genre {genre.code}")
+                    continue
 
-                    # Save movies
-                    from app.services.movie_service import MovieService
-                    movie_service = MovieService(new_session)
-                    saved_count = await movie_service.save_movies(movies)
+                # Save movies
+                saved_count : int = await self._movie_crawler_repository.save_movies(movies)
                     
-                    # Update progress status to completed if movies were saved
-                    if saved_count > 0:
-                        await page_progress_manager.update_page_progress(
-                            page_progress_id=page_progress_id,
-                            status='completed',
-                            processed_items=saved_count
-                        )
-                    
-                    # Commit all changes for this page in a single transaction
-                    await new_session.commit()
+                # Update progress status to completed if movies were saved
+                if saved_count > 0:
+                    await self._crawler_progress_service.update_page_progress(
+                        page_progress_id=page_progress_id,
+                        status='completed',
+                        processed_items=saved_count
+                    )
                     
             except Exception as page_error:
                 self._logger.error(f"Error processing page {page} for genre {genre.code}: {str(page_error)}", exc_info=True)
@@ -177,8 +168,6 @@ class GenreService:
         
         return True
             
-    
-    
     async def _fetch_genres(self, base_url: str, language: str) -> list:
         """Fetch all available genres from the website.
         
@@ -213,37 +202,6 @@ class GenreService:
             Optional[int]: Total number of pages, None if failed
         """
         try:
-            # 确保 URL 包含语言代码
-            import re
-            
-            # 改进的URL处理逻辑，确保所有URL都添加语言代码
-            if self._language and self._language.value:
-                # 确保我们使用语言的value属性
-                language_code = self._language.value
-                
-                # 分析URL结构
-                if '://' in url:
-                    protocol, rest = url.split('://', 1)
-                else:
-                    protocol = 'http'
-                    rest = url
-                    
-                if '/' in rest:
-                    domain, path = rest.split('/', 1)
-                else:
-                    domain = rest
-                    path = ''
-                
-                # 始终添加语言代码，即使是 dm*/genres/* 格式
-                if not path.startswith(f"{language_code}/"):
-                    path = f"{language_code}/{path.lstrip('/')}"
-                
-                # 构建新的URL
-                url = f"{protocol}://{domain}/{path}"
-                    
-                print(f"DEBUG - Adjusted URL with language code: {url}")
-                self._logger.info(f"Adjusted URL with language code: {url}")
-            
             response = self._session.get(url, timeout=10)
             if response.status_code != 200:
                 self._logger.error(f"Failed to get total pages: HTTP {response.status_code}")
@@ -277,32 +235,12 @@ class GenreService:
             
             # 构建带页码的URL
             url = f"{base_url}?page={page}"
-            
-            # 如果 URL 是 dm*/genres/* 格式，需要添加语言代码
-            if re.search(r'dm\d+/genres/', url) and f"/{self._language}/" not in url:
-                # 提取域名部分
-                domain_part = url.split('//')[-1].split('/')[0]
-                # 提取路径部分
-                path_parts = url.split('//')[-1].split('/')
-                # 提取查询参数部分
-                query_part = ""
-                if "?" in path_parts[-1]:
-                    path_parts[-1], query_part = path_parts[-1].split("?", 1)
-                    query_part = "?" + query_part
-                
-                # 重新构建路径
-                path_part = '/'.join(path_parts[1:])
-                
-                # 构建新的URL，包含语言代码
-                url = f"http://{domain_part}/{path_part}{query_part}"
-                self._logger.info(f"Adjusted page URL with language code: {url}")
-            
             response = self._session.get(url, timeout=10)
             if response.status_code != 200:
                 self._logger.error(f"Failed to process page {page}: HTTP {response.status_code}")
                 return []
             
-            movies = self._movie_parser.extract_movie_links(response.text, self._base_url + '/' + self._language)
+            movies = self._movie_parser.extract_movie_links(response.text, base_url)
             return movies
             
         except Exception as e:
