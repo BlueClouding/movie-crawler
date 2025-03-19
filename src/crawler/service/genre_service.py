@@ -91,15 +91,22 @@ class GenreService:
 
         for i, genre in enumerate(all_genres[:max_genres]):
             try:
-                # 使用 genre 中的 code 字段
-                genre_code : str = genre.code
+                # 提前获取所有需要的属性，避免懒加载问题
+                genre_id = genre.id
+                genre_code = genre.code
+                genre_urls = genre.urls.copy() if hasattr(genre, 'urls') and genre.urls else []
+                
+                if not genre_urls:
+                    self._logger.warning(f"No URLs found for genre ID {genre_id}, skipping")
+                    continue
+                    
                 self._logger.info(f"Processing genre {i+1}/{max_genres}: {genre_code}")
                 
                 # Get current progress
-                current_page : int = await self._crawler_progress_service.get_genre_progress(genre.id, code=genre_code, task_id=task_id)
+                current_page : int = await self._crawler_progress_service.get_genre_progress(genre_id, code=genre_code, task_id=task_id)
                 
                 # Process genre pages
-                total_pages : int = await self._get_total_pages(genre.urls[0])
+                total_pages : int = await self._get_total_pages(genre_urls[0])
                 if not total_pages:
                     self._logger.warning(f"Could not determine total pages for genre {genre_code}, skipping")
                     continue
@@ -107,7 +114,7 @@ class GenreService:
                 self._logger.info(f"Genre {genre_code} has {total_pages} pages, current progress: {current_page}")
 
                 # Process each page
-                await self._process_genre_pages(genre, total_pages, current_page, task_id)
+                await self._process_genre_pages(genre_id, genre_code, genre_urls, total_pages, current_page, task_id)
             except Exception as genre_error:
                 self._logger.error(f"Error processing genre {genre_code}: {str(genre_error)}")
                 continue
@@ -115,39 +122,39 @@ class GenreService:
         self._logger.info("Successfully processed all genres")
         return True
 
-    async def _process_genre_pages(self, genre: Genre, total_pages: int, current_page: int, task_id: int) -> bool:
+    async def _process_genre_pages(self, genre_id: int, genre_code: str, genre_urls: list, total_pages: int, current_page: int, task_id: int) -> bool:
         # Create a new progress manager for each page to avoid session conflicts        
         for page in range(current_page + 1, total_pages + 1):
             try:
                 # Process page and get movie data
-                self._logger.info(f"Processing page {page}/{total_pages} for genre {genre.code}")
+                self._logger.info(f"Processing page {page}/{total_pages} for genre {genre_code}")
 
                 # Create progress record for this page
                 page_progress_id : int = await self._crawler_progress_service.create_genre_page_progress(
-                    genre_id=genre.id,
+                    genre_id=genre_id,
                     page=page,
                     total_pages=total_pages,
-                    code=genre.code,
+                    code=genre_code,
                     status='processing',
                     total_items=0,
                     task_id=task_id
                 )
                 
                 if not page_progress_id:
-                    self._logger.error(f"Failed to create progress record for page {page} of genre {genre.code}")
+                    self._logger.error(f"Failed to create progress record for page {page} of genre {genre_code}")
                     continue
 
 
-                movies : List[Movie] = await self._process_page_get_movies(genre.urls[0], page)
+                movies : List[Movie] = await self._process_page_get_movies(genre_urls[0], page)
                 
                 if not movies:
-                    self._logger.warning(f"No movies found on page {page} for genre {genre.code}")
+                    self._logger.warning(f"No movies found on page {page} for genre {genre_code}")
                     # Create progress record anyway to mark this page as processed
                     await self._crawler_progress_service.create_genre_page_progress(
-                        genre_id=genre.id,
+                        genre_id=genre_id,
                         page=page,
                         total_pages=total_pages,    
-                        code=genre.code,
+                        code=genre_code,
                         status='completed',
                         total_items=len(movies),
                         task_id=task_id
@@ -166,7 +173,7 @@ class GenreService:
                     )
                     
             except Exception as page_error:
-                self._logger.error(f"Error processing page {page} for genre {genre.code}: {str(page_error)}", exc_info=True)
+                self._logger.error(f"Error processing page {page} for genre {genre_code}: {str(page_error)}", exc_info=True)
                 continue
         
         return True

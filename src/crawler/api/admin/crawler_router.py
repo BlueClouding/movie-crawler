@@ -65,13 +65,16 @@ async def start_crawler(request: CrawlerRequest,
     # 获取对应的启动函数
     start_function = switch[request.start]
     
+    # 确保task对象已完全加载
+    task_id = task.id
+    
     # 调用启动函数
     logger.info(f"开始执行爬虫启动函数: {start_function.__name__}")
-    await start_function(task.id)
+    await start_function(task_id)
     
-    logger.info(f"爬虫启动成功，任务ID: {task.id}")
+    logger.info(f"爬虫启动成功，任务ID: {task_id}")
     return CrawlerResponse(
-        task_id=task.id,
+        task_id=task_id,
         status="started",
         message="Crawler started successfully"
     )

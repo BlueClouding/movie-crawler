@@ -1,12 +1,10 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from crawler.service.movie_detail_crawler_service import MovieDetailCrawlerService
-from crawler.repository.movie_repository import MovieRepository
-from crawler.service.crawler_progress_service import CrawlerProgressService
-from app.config.database import async_session
 from fastapi import APIRouter
 import logging
 import asyncio
-from fastapi import Depends
+from app.config.database import async_session, _session_context
+from common.utils.dependency_utils import get_service_with_deps
 
 # 获取日志记录器
 logger = logging.getLogger(__name__)
@@ -20,7 +18,7 @@ router = APIRouter()
 
 # API端点：启动爬虫任务
 @router.post("/start")
-async def start_crawler(interval: float = 10.0, movie_detail_crawler_service: MovieDetailCrawlerService = Depends(MovieDetailCrawlerService)):
+async def start_crawler(interval: float = 10.0):
     global current_polling_interval
     current_polling_interval = interval
     
@@ -31,25 +29,29 @@ async def start_crawler(interval: float = 10.0, movie_detail_crawler_service: Mo
     # 定义快速爬虫任务，完全自包含以避免依赖注入问题
     def run_crawler_job():
         async def process_movie_details():
-            # 创建新的数据库会话，而不是使用FastAPI的注入系统
+            # 创建新的数据库会话
             async with async_session() as session:
                 try:
-                    # 手动创建仓库和服务，使用新数据库会话
-                    movie_repo = MovieRepository(session)
-                    progress_service = CrawlerProgressService(session)
-                    service = MovieDetailCrawlerService(progress_service, movie_repo)
+                    # 设置会话上下文
+                    token = _session_context.set(session)
                     
-                    # 执行爬虫处理
-                    await service.process_movies_details_once(session)
-                    await session.commit()
-                    logger.info("Successfully processed movie details in scheduled job")
+                    try:
+                        # 使用依赖注入工具创建服务实例
+                        service = await get_service_with_deps(MovieDetailCrawlerService)
+                    
+                        # 执行爬虫处理
+                        await service.process_movies_details_once()
+                        await session.commit()
+                        logger.info("Successfully processed movie details in scheduled job")
+                    finally:
+                        # 恢复会话上下文
+                        _session_context.reset(token)
                 except Exception as e:
                     await session.rollback()
                     logger.error(f"Error in movie crawler scheduled task: {str(e)}")
-                    # 记录完整的堆栈跟踪以便调试
                     import traceback
                     logger.error(traceback.format_exc())
-        
+                   
         # 创建事件循环并运行任务
         try:
             # 创建新的事件循环（而不是使用FastAPI的循环）
