@@ -12,6 +12,14 @@ class MovieCrawlerRepository(BaseRepositoryAsync[VideoProgress, int]):
 
 
     async def save_movies(self, movies: List[Movie]) -> int:
-        self.db.add_all(movies)
-        await self.db.commit()
-        return len(movies)
+        saved_count = 0
+        for movie in movies:
+            try:
+                self.db.add(movie)
+                await self.db.flush()  # 使用 flush 可以在提交前捕获异常
+                saved_count += 1
+            except Exception as e:
+                self._logger.error(f"保存电影数据失败 (唯一约束冲突): {e}")
+                continue
+        await self.db.commit()  # 提交所有成功保存的电影
+        return saved_count

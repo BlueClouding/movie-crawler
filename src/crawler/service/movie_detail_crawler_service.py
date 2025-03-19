@@ -11,12 +11,15 @@ from ..parsers.movie_parser import MovieParser
 from ..parsers.actress_parser import ActressParser
 from crawler.service.crawler_progress_service import CrawlerProgressService
 from fastapi import Depends
+from crawler.repository.movie_repository import MovieRepository
 
 class MovieDetailCrawlerService:
     """Crawler for fetching movie details."""
     
     def __init__(self,
-        crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService)):
+        crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService),
+        movie_repository: MovieRepository = Depends(MovieRepository)
+        ):
         """Initialize DetailCrawler.
 
         Args:
@@ -37,52 +40,54 @@ class MovieDetailCrawlerService:
         # Initialize image downloader
         self._image_downloader = None
 
-        self._crawler_progress_service = CrawlerProgressService()
+        self._crawler_progress_service = crawler_progress_service
+        self._movie_repository = movie_repository
 
-    async def process_pending_movies(self, task_id:int) -> bool:
-        """Process pending movies.
-        
-        Returns:
-            bool: True if successful, False otherwise
+    async def process_pending_movies_job(self, polling_interval: float = 60.0):
+        """Continuously process pending movies.
+
+        Args:
+            polling_interval: The interval (in seconds) to check for new pending movies.
         """
-        try:
-            # Get pending movies from database
-            pending_movies = await self._crawler_progress_service.get_pending_movies(task_id)
-            if not pending_movies:
-                self._logger.info("No pending movies to process")
-                return True
-                
-            self._logger.info(f"Found {len(pending_movies)} pending movies to process")
-            
-            # Process movies in batches to avoid memory issues
-            batch_size = 10
-            for i in range(0, len(pending_movies), batch_size):
-                batch = pending_movies[i:i+batch_size]
-                tasks = []
-                
-                for movie in batch:
-                    tasks.append(self._process_movie(movie))
-                    
-                # Wait a short time between starting tasks to avoid overwhelming the server
-                await asyncio.sleep(random.uniform(0.5, 1.5))
-                
-                # Process batch
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Log results
-                success_count = sum(1 for r in results if r is True)
-                error_count = sum(1 for r in results if isinstance(r, Exception))
-                logging.info(f"Processed batch {i//batch_size + 1}/{(len(pending_movies) + batch_size - 1)//batch_size}: {success_count} succeeded, {error_count} failed")
-                
-                # Add delay between batches
-                await asyncio.sleep(random.uniform(1.0, 3.0))
-                
-            logging.info("Successfully processed all pending movies")
-            return True
-            
-        except Exception as e:
-            logging.error(f"Error processing pending movies: {str(e)}")
-            return False
+        logging.info(f"Starting pending movies processing job with polling interval of {polling_interval} seconds.")
+        while True:
+            try:
+                # Get pending movies from database
+                new_movies = await self._movie_repository.get_new_movies(100)
+                if not new_movies:
+                    self._logger.info(f"No pending movies to process. Sleeping for {polling_interval} seconds.")
+                    await asyncio.sleep(polling_interval)
+                    continue
+
+                self._logger.info(f"Found {len(new_movies)} pending movies to process")
+
+                # Process movies in batches to avoid memory issues
+                batch_size = 10
+                for i in range(0, len(new_movies), batch_size):
+                    batch = new_movies[i:i + batch_size]
+                    tasks = []
+
+                    for movie in batch:
+                        tasks.append(self._process_movie(movie))
+
+                    # Wait a short time between starting tasks to avoid overwhelming the server
+                    await asyncio.sleep(0.2)
+
+                    # Process batch
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # Log results
+                    success_count = sum(1 for r in results if r is True)
+                    error_count = sum(1 for r in results if isinstance(r, Exception))
+                    logging.info(f"Processed batch {i // batch_size + 1}/{(len(new_movies) + batch_size - 1) // batch_size}: {success_count} succeeded, {error_count} failed")
+
+                logging.info(f"Successfully processed {len(new_movies)} pending movies in this cycle.")
+
+            except Exception as e:
+                logging.error(f"Error processing pending movies: {str(e)}")
+
+            # Wait before checking for new pending movies again
+            await asyncio.sleep(polling_interval)
 
     async def _process_movie(self, movie_data: Dict[str, Any]) -> bool:
         """Process a single movie.

@@ -21,6 +21,7 @@ class CrawlerStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     STOPPED = "stopped"
+    NEW = "new"
 
 class CrawlerTaskType(str, enum.Enum):
     GENRES = "genres"

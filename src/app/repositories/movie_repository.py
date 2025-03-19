@@ -13,6 +13,7 @@ from common.db.entity.download import Magnet, DownloadUrl, WatchUrl
 from app.repositories.base_repository import BaseRepositoryAsync
 from app.config.database import get_db_session
 from fastapi import Depends
+
 class MovieRepository(BaseRepositoryAsync[Movie, int]):
     def __init__(self, db: AsyncSession = Depends(get_db_session)):
         super().__init__(db)

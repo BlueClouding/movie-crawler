@@ -230,15 +230,7 @@ class MovieParser:
                                 
                                 # 获取链接
                                 url = detail_div.get('href', '')
-                                if url:
-                                    # 处理URL格式
-                                    if not url.startswith('http'):
-                                        # 如果是相对路径，添加域名
-                                        if url.startswith('/'):
-                                            url = f'{base_url}{url}'
-                                        else:
-                                            url = f'{base_url}/{url}'
-                                    movie.link = url
+                                movie.link = f'{base_url}/{url}'
                             
                             # Get thumbnail
                             img = item.select_one('img')

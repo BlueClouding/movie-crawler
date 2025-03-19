@@ -121,29 +121,15 @@ class GenreService:
             try:
                 # Process page and get movie data
                 self._logger.info(f"Processing page {page}/{total_pages} for genre {genre.code}")
-                movies : List[Movie] = await self._process_page(genre.urls[0], page)
-                
-                if not movies:
-                    self._logger.warning(f"No movies found on page {page} for genre {genre.code}")
-                    # Create progress record anyway to mark this page as processed
-                    await self._crawler_progress_service.create_genre_progress(
-                        genre_id=genre.id,
-                        page=page,
-                        total_pages=total_pages,
-                        code=genre.code,
-                        status='completed',
-                        total_items=0
-                    )
-                    continue
-                        
+
                 # Create progress record for this page
-                page_progress_id : int = await self._crawler_progress_service.create_genre_progress(
+                page_progress_id : int = await self._crawler_progress_service.create_genre_page_progress(
                     genre_id=genre.id,
                     page=page,
                     total_pages=total_pages,
                     code=genre.code,
                     status='processing',
-                    total_items=len(movies),
+                    total_items=0,
                     task_id=task_id
                 )
                 
@@ -151,6 +137,23 @@ class GenreService:
                     self._logger.error(f"Failed to create progress record for page {page} of genre {genre.code}")
                     continue
 
+
+                movies : List[Movie] = await self._process_page_get_movies(genre.urls[0], page)
+                
+                if not movies:
+                    self._logger.warning(f"No movies found on page {page} for genre {genre.code}")
+                    # Create progress record anyway to mark this page as processed
+                    await self._crawler_progress_service.create_genre_page_progress(
+                        genre_id=genre.id,
+                        page=page,
+                        total_pages=total_pages,    
+                        code=genre.code,
+                        status='completed',
+                        total_items=len(movies),
+                        task_id=task_id
+                    )
+                    continue
+                        
                 # Save movies
                 saved_count : int = await self._movie_crawler_repository.save_movies(movies)
                     
@@ -219,7 +222,7 @@ class GenreService:
             self._logger.error(f"Error getting total pages: {str(e)}")
             return None
             
-    async def _process_page(self, base_url: str, page: int) -> List[Movie]:
+    async def _process_page_get_movies(self, base_url: str, page: int) -> List[Movie]:
         """Process a single page of a genre.
         
         Args:
@@ -240,7 +243,7 @@ class GenreService:
                 self._logger.error(f"Failed to process page {page}: HTTP {response.status_code}")
                 return []
             
-            movies = self._movie_parser.extract_movie_links(response.text, base_url)
+            movies = self._movie_parser.extract_movie_links(response.text, "https://www.123av.com/ja")
             return movies
             
         except Exception as e:

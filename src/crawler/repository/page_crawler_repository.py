@@ -18,8 +18,7 @@ class PageCrawlerRepository(BaseRepositoryAsync[PagesProgress, int]):
             select(PagesProgress)
             .filter(
                 PagesProgress.relation_id == genre_id,
-                PagesProgress.page_type == 'genre',
-                PagesProgress.crawler_progress_id == task_id
+                PagesProgress.page_type == 'genre'
             )
             .order_by(PagesProgress.page_number.desc())
             .limit(1)
@@ -39,7 +38,7 @@ class PageCrawlerRepository(BaseRepositoryAsync[PagesProgress, int]):
         await self.db.commit()
         return page_progress_id
 
-    async def create_genre_progress(self, page_progress: PagesProgress):
+    async def create_page_progress(self, page_progress: PagesProgress):
         self.db.add(page_progress)
         await self.db.commit()
         return page_progress.id

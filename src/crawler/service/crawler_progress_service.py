@@ -14,6 +14,9 @@ from crawler.repository.movie_crawler_repository import MovieCrawlerRepository
 from crawler.models.update_progress import GenrePageProgressUpdate
 from common.db.entity.crawler import VideoProgress
 from common.enums.enums import CrawlerStatus
+from common.db.entity.movie import Movie
+
+
 class CrawlerProgressService:
     """Database progress manager."""
     
@@ -65,58 +68,7 @@ class CrawlerProgressService:
         return await self._page_crawler_repository.get_latest_page_by_genre_task(genre_id, task_id)
     
 
-    #返回值为最新的genre_progress 的 id
-    async def update_genre_progress(self, genre_id: int, page: int, total_pages: int, 
-    code: str = None, status: str = None, total_items: int = None, task_id: int = None):
-        """Update progress for a genre.
-
-        Args:
-            genre_id: ID of the genre
-            page: Current page number
-            total_pages: Total number of pages
-            code: Optional code of the genre
-            status: Optional status of the genre
-            total_items: Optional total number of items
-        """
-        try:
-            # 如果提供了 code，则尝试使用 code 查询
-            if code:
-                try:
-                    # 查询 genres 表中是否有匹配的 code
-                    db_genre = await self._genre_repository.get_by_code(code)
-                    if db_genre:
-                        # 如果找到了匹配的 genre，则使用其 ID
-                        self._logger.info(f"Found genre with code {code}, id: {db_genre.id}")
-                        genre_id = db_genre.id
-                except Exception as e:
-                    self._logger.error(f"Error querying genre by code: {str(e)}")
-            
-            # First query existing progress
-            page_progress : PagesProgress = await self._page_crawler_repository.get_latest_page_by_genre_task(genre_id, task_id)
-
-            if page_progress:
-                update_values = GenrePageProgressUpdate(
-                    page=page, total_pages=total_pages, code=code, status=status, total_items=total_items
-                )
-                # Update the progress record
-                return await self._page_crawler_repository.update_page_progress(page_progress.id, update_values)
-            else:
-                # Create new progress
-                page_progress = PagesProgress(
-                    crawler_progress_id=task_id,
-                    relation_id=genre_id,
-                    page_type='genre',
-                    page_number=page,
-                    total_pages=total_pages,
-                    total_items=total_items,
-                    status=status
-                )
-                return await self._page_crawler_repository.create_genre_progress(page_progress)
-        except Exception as e:
-            self._logger.error(f"Error updating genre progress: {str(e)}")
-            return None
-
-    async def create_genre_progress(self, genre_id: int, page: int, total_pages: int, code: str = None, status: str = None, total_items: int = None, task_id: int = None):
+    async def create_genre_page_progress(self, genre_id: int, page: int, total_pages: int, code: str = None, status: str = None, total_items: int = None, task_id: int = None):
         """Create new progress for a genre.
 
         Args:
@@ -140,7 +92,7 @@ class CrawlerProgressService:
                         page=page, total_pages=total_pages, code=code, status=status, total_items=total_items
                     )
                 )
-            result : int = await self._page_crawler_repository.create_genre_progress(
+            result : int = await self._page_crawler_repository.create_page_progress(
                 PagesProgress(
                     crawler_progress_id=task_id,
                     relation_id=genre_id,
@@ -294,53 +246,7 @@ class CrawlerProgressService:
             self._logger.error(f"Error saving movie: {str(e)}")
             return None
             
-    async def get_pending_movies(self, task_id:int, limit: int = 100):
-        """获取待处理的电影列表。
-        
-        Args:
-            limit: 最大返回数量，默认100条
-            
-        Returns:
-            list: 待处理电影列表
-        """
-        if not self._movie_crawler_repository.db:
-            return []
-            
-        try:
-            # 查询状态为“pending”且detail_fetched为False的电影记录
-            result = await self._movie_crawler_repository.db.execute(
-                select(VideoProgress)
-                .where(
-                    VideoProgress.crawler_progress_id == task_id,
-                    VideoProgress.status == CrawlerStatus.PENDING.value,
-                    VideoProgress.detail_fetched == False
-                )
-                .limit(limit)
-            )
-            
-            movies = result.scalars().all()
-            
-            # 将数据库记录转换为字典列表
-            movie_list = []
-            for movie in movies:
-                movie_list.append({
-                    "id": movie.id,
-                    "code": movie.code,
-                    "url": movie.url,
-                    "genre_id": movie.genre_id,
-                    "page_number": movie.page_number,
-                    "title": movie.title,
-                    "status": movie.status,
-                    "retry_count": movie.retry_count,
-                    "original_id": movie.movie_id
-                })
-                
-            self._logger.info(f"Found {len(movie_list)} pending movies")
-            return movie_list
-        except Exception as e:
-            self._logger.error(f"Error getting pending movies: {str(e)}")
-            return []
-            
+    
     #增加更新page_progress
     async def update_movie_status(self, movie_id: int, status: str, error: str = None):
         """更新电影的处理状态。
