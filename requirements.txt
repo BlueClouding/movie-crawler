@@ -30,6 +30,10 @@ pydantic-settings>=2.0.3  # 基于Pydantic的设置管理
 python-multipart>=0.0.6  # 表单数据处理
 email-validator>=2.1.0  # 电子邮件验证
 greenlet==3.1.1
+
+# 调度
+apscheduler>=3.11.0  # 任务调度
+
 # 安全
 python-jose>=3.3.0  # JWT支持
 passlib>=1.7.4  # 密码哈希

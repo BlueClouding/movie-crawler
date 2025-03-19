@@ -7,6 +7,7 @@ from sqlalchemy.ext.declarative import declared_attr
 from pydantic import BaseModel, ConfigDict
 from common.db.entity.base import DBBaseModel
 from common.enums.enums import SupportedLanguage
+from sqlalchemy.dialects.postgresql import ARRAY
 
 
 class MovieStatus(str, Enum):
@@ -32,6 +33,11 @@ class Movie(DBBaseModel):
     title = Column(Text)
     status = Column(String(20), default=MovieStatus.NEW.value, nullable=False)
     description = Column(Text)
+    tags = Column(ARRAY(Text), nullable=True)
+    genres = Column(ARRAY(Text), nullable=True)
+    director = Column(String(55), nullable=True)
+    maker = Column(String(55), nullable=True)
+    actresses = Column(ARRAY(String(55)), nullable=True)
 
     def __repr__(self):
         return f"<Movie {self.code}>"

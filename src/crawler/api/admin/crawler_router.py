@@ -10,10 +10,10 @@ from common.db.entity.crawler import (
     CrawlerProgressCreate,
     CrawlerProgressResponse, 
     PagesProgressCreate, PagesProgressResponse,
-    VideoProgressCreate, VideoProgressResponse,
     CrawlerProgressSummary
 )
 from crawler.service.crawler_service import CrawlerService
+
 
 # 获取日志记录器
 logger = logging.getLogger(__name__)
@@ -37,16 +37,6 @@ router = APIRouter()
 async def start_crawler(request: CrawlerRequest, 
     crawler_service: CrawlerService = Depends()):
     """Start the crawler with specified parameters."""
-    # 检查 crawler_service 是否为 None
-    if crawler_service is None:
-        logger.error("crawler_service 为 None，无法启动爬虫")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Crawler service is not available"
-        )
-    
-    # 记录开始创建爬虫进度
-    logger.debug("创建爬虫进度记录")
     
     # Start crawler in background task
     task : CrawlerProgress = await crawler_service.create_crawler_progress(CrawlerProgress(
@@ -61,8 +51,7 @@ async def start_crawler(request: CrawlerRequest,
     
     switch = {
         Start.GENRES: crawler_service.initialize_and_startGenres,
-        Start.GENRES_PAGES: crawler_service.initialize_and_startGenresPages,
-        Start.MOVIES: crawler_service.initialize_and_startMovies
+        Start.GENRES_PAGES: crawler_service.initialize_and_startGenresPages
     }
     
     # 检查请求的启动类型是否有效
@@ -93,14 +82,6 @@ async def stop_crawler(
     crawler_service: CrawlerService = Depends()
 ):
     """Stop a running crawler task."""
-    # 检查服务是否可用
-    if crawler_service is None:
-        logger.error("服务不可用，无法停止爬虫")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Crawler service is not available"
-        )
-    
     # 获取任务信息
     logger.debug(f"获取任务信息，ID: {task_id}")
     task = await crawler_service.get_by_id(task_id)

@@ -16,6 +16,8 @@ CREATE TABLE movies (
     original_id INTEGER,
     status VARCHAR(20) DEFAULT 'new',
     description TEXT,
+    tags text[] NULL,
+    genres text[] NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

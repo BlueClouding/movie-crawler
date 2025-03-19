@@ -1,6 +1,5 @@
 import logging
 import sys
-import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -19,7 +18,7 @@ def setup_logging(app_name="crawler", log_level=logging.INFO, log_to_file=True):
     
     # 创建格式化器
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
+        "%(levelname)-8s - %(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(message)s"
     )
     
     # 创建根日志记录器

@@ -187,54 +187,6 @@ def _get_movie_detail(session, movie: Dict[str, Any], response: Response) -> Dic
         logging.error(f"Traceback: {traceback.format_exc()}")
         return {}
 
-def _get_video_urls(session, video_id):
-        """Get video URLs from ajax endpoint.
-        
-        Args:
-            video_id (str): Video ID
-            
-        Returns:
-            tuple: (watch_urls_info, download_urls_info) or ([], []) if failed.
-                watch_urls_info: list of dicts, each dict contains 'index', 'name', 'url'
-                download_urls_info: list of dicts, each dict contains 'host', 'index', 'name', 'url'
-        """
-        try:
-            # Use ajax endpoint
-            ajax_url = f'https://123av.com/ja/ajax/v/{video_id}/videos'
-            logging.info(f"Requesting ajax endpoint: {ajax_url}")
-            
-            response: Response = session.get(ajax_url, timeout=10)
-            
-            if response.status_code != 200:
-                logging.error(f"Failed to fetch video URLs: {response.status_code}")
-                return [], []
-                
-            data = response.json()
-            if not data.get('status') == 200 or not data.get('result'):
-                logging.error("Invalid ajax response format")
-                return [], []
-                
-            watch_urls = data['result'].get('watch', [])
-            download_urls = data['result'].get('download', [])
-            
-            # Validate watch URLs format
-            for url_info in watch_urls:
-                if not all(k in url_info for k in ('index', 'name', 'url')):
-                    logging.error(f"Invalid watch URL info format: {url_info}")
-                    return [], []
-                    
-            # Validate download URLs format
-            for url_info in download_urls:
-                if not all(k in url_info for k in ('host', 'index', 'name', 'url')):
-                    logging.error(f"Invalid download URL info format: {url_info}")
-                    return [], []
-            
-            return watch_urls, download_urls
-            
-        except Exception as e:
-            logging.error(f"Error getting video URLs: {str(e)}")
-            return [], []
-
 
 def _parse_player_page(html_content):
     """Parse player page to extract stream data.

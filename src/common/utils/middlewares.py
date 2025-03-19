@@ -5,9 +5,10 @@ import traceback
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from typing import Callable
+from common.utils.logging_config import setup_logging
 
-logger = logging.getLogger(__name__)
+# 使用集中式日志配置
+logger = setup_logging(app_name="crawler", log_level=logging.DEBUG)
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     """
