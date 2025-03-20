@@ -18,7 +18,7 @@ router = APIRouter()
 
 # API端点：启动爬虫任务
 @router.post("/start")
-async def start_crawler(interval: float = 10.0):
+async def start_crawler(interval: float = 30.0):
     global current_polling_interval
     current_polling_interval = interval
     
@@ -39,15 +39,19 @@ async def start_crawler(interval: float = 10.0):
                         # 使用依赖注入工具创建服务实例
                         service = await get_service_with_deps(MovieDetailCrawlerService)
                     
-                        # 执行爬虫处理
+                        # 不再使用单一事务包装所有爬虫操作
+                        # 因为每个电影现在都有自己的事务
                         await service.process_movies_details_once()
-                        await session.commit()
+                        
+                        # 不需要显式提交
                         logger.info("Successfully processed movie details in scheduled job")
                     finally:
                         # 恢复会话上下文
                         _session_context.reset(token)
                 except Exception as e:
-                    await session.rollback()
+                    # 不再需要在这里回滚事务
+                    # 因为每个电影都在自己的事务中处理
+                    pass
                     logger.error(f"Error in movie crawler scheduled task: {str(e)}")
                     import traceback
                     logger.error(traceback.format_exc())
@@ -69,7 +73,8 @@ async def start_crawler(interval: float = 10.0):
         'interval', 
         seconds=interval,
         id="movie_crawler",
-        replace_existing=True
+        replace_existing=True,
+        max_instances=1
     )
     
     # 确保调度器已经启动

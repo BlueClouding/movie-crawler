@@ -3,8 +3,8 @@
 import logging
 import os
 import time
-import random
 import asyncio
+import random
 from typing import Optional, List, Dict, Any
 from ..utils.http import create_session
 from ..parsers.movie_parser import MovieParser
@@ -68,12 +68,28 @@ class MovieDetailCrawlerService:
 
             # 处理每个电影
             processed_count = 0
+            
+            # 每个电影单独处理，并且每个电影使用单独的数据库事务
             for movie_info in movie_data:
                 try:
-                    # 每个电影单独处理，避免数据库会话冲突
-                    success = await self._process_movie(movie_info)
-                    if success:
-                        processed_count += 1
+                    # 使用独立的事务处理每个电影，避免一个电影的错误影响其他电影
+                    from crawler.repository.movie_repository import MovieRepository
+                    from app.config.database import async_session
+                    
+                    # 创建新的数据库会话和仓库实例
+                    async with async_session() as session:
+                        # 开始事务
+                        async with session.begin():
+                            # 创建一个新的仓库实例，使用独立的会话
+                            movie_repo = MovieRepository(session)
+                            
+                            # 处理电影
+                            success = await self._process_movie(movie_info, movie_repo)
+                            if success:
+                                processed_count += 1
+                    
+                    # 添加小延迟，避免数据库操作过于频繁
+                    await asyncio.sleep(0.1)
                 except Exception as e:
                     self._logger.error(f"Error processing movie {movie_info.get('code', movie_info['id'])}: {str(e)}")
 
@@ -82,11 +98,12 @@ class MovieDetailCrawlerService:
         except Exception as e:
             self._logger.error(f"Error processing pending movies: {str(e)}")
 
-    async def _process_movie(self, movie_info: dict) -> bool:
+    async def _process_movie(self, movie_info: dict, movie_repository=None) -> bool:
         """Process a single movie.
         
         Args:
             movie_info: Dictionary containing movie information (id, link, code)
+            movie_repository: Optional repository instance for database operations
             
         Returns:
             bool: True if successful, False otherwise
@@ -120,8 +137,17 @@ class MovieDetailCrawlerService:
                 movie_details['code'] = movie_info['code']
             
             # 使用独立的数据库操作保存电影详情
-            await self._movie_repository.saveOrUpdate(movie_details)
-            return True
+            try:
+                # 使用传入的仓库实例，如果有的话
+                if movie_repository:
+                    await movie_repository.saveOrUpdate(movie_details)
+                else:
+                    # 如果没有传入仓库实例，则使用类级别的仓库
+                    await self._movie_repository.saveOrUpdate(movie_details)
+                return True
+            except Exception as db_error:
+                self._logger.error(f"Database error while saving movie {url}: {str(db_error)}")
+                return False
         except Exception as e:
             self._logger.error(f"Error processing movie {url}: {str(e)}")
             return False
