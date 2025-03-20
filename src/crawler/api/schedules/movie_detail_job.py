@@ -3,13 +3,8 @@ from crawler.service.movie_detail_crawler_service import MovieDetailCrawlerServi
 from fastapi import APIRouter
 import logging
 import asyncio
-from fastapi import Depends
-from common.db.entity.movie import Movie
-from typing import List
-from crawler.repository.movie_repository import MovieRepository
-from common.db.entity.download import DownloadUrl, WatchUrl
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.config.database import get_db_session
+from app.config.database import async_session, _session_context
+from common.utils.dependency_utils import get_service_with_deps
 
 # 获取日志记录器
 logger = logging.getLogger(__name__)
@@ -23,8 +18,7 @@ router = APIRouter()
 
 # API端点：启动爬虫任务
 @router.post("/start")
-async def start_crawler(interval: float = 30.0, service: MovieDetailCrawlerService = Depends(MovieDetailCrawlerService),
-movie_repository: MovieRepository = Depends(MovieRepository), session: AsyncSession = Depends(get_db_session)):
+async def start_crawler(interval: float = 30.0):
     global current_polling_interval
     current_polling_interval = interval
     
@@ -36,15 +30,32 @@ movie_repository: MovieRepository = Depends(MovieRepository), session: AsyncSess
     def run_crawler_job():
         async def process_movie_details():
             # 创建新的数据库会话
-            
-            movies : List[Movie] = await service.process_movies_details_once()
-            
-            # 更新进度
-            await movie_repository.saveOrUpdate(movies, session)
-            
-            # 不需要显式提交
-            logger.info("Successfully processed movie details in scheduled job")
-    
+            async with async_session() as session:
+                try:
+                    # 设置会话上下文
+                    token = _session_context.set(session)
+                    
+                    try:
+                        # 使用依赖注入工具创建服务实例
+                        service = await get_service_with_deps(MovieDetailCrawlerService)
+                    
+                        # 不再使用单一事务包装所有爬虫操作
+                        # 因为每个电影现在都有自己的事务
+                        await service.process_movies_details_once()
+                        
+                        # 不需要显式提交
+                        logger.info("Successfully processed movie details in scheduled job")
+                    finally:
+                        # 恢复会话上下文
+                        _session_context.reset(token)
+                except Exception as e:
+                    # 不再需要在这里回滚事务
+                    # 因为每个电影都在自己的事务中处理
+                    pass
+                    logger.error(f"Error in movie crawler scheduled task: {str(e)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                   
         # 创建事件循环并运行任务
         try:
             # 创建新的事件循环（而不是使用FastAPI的循环）

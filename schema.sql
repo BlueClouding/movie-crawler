@@ -18,6 +18,10 @@ CREATE TABLE movies (
     description TEXT,
     tags text[] NULL,
     genres text[] NULL,
+    actresses text[] NULL,
+    watch_urls_info text[] NULL,
+    download_urls_info text[] NULL,
+    magnets text[] NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

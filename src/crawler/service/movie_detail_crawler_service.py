@@ -1,5 +1,6 @@
 """Detail crawler module for fetching movie details."""
 
+from ctypes import Array
 import logging
 import os
 import time
@@ -46,111 +47,60 @@ class MovieDetailCrawlerService:
         self._movie_repository = movie_repository
 
     # 单次执行的方法
-    async def process_movies_details_once(self):
+    async def process_movies_details_once(self) -> List[Movie]:
         """Process one batch of pending movies."""
-        try:
-            # Get pending movies from database
-            new_movies = await self._movie_repository.get_new_movies(100)
-            if not new_movies:
-                self._logger.info(f"No pending movies to process.")
-                return
+        # Get pending movies from database
+        new_movies: List[Movie] = await self._movie_repository.get_new_movies(100)
+        if not new_movies:
+            self._logger.info(f"No pending movies to process.")
+            return
 
-            self._logger.info(f"Found {len(new_movies)} pending movies to process")
-            
-            # 预先加载所有电影的必要属性到本地变量，避免懒加载问题
-            movie_data = []
-            for movie in new_movies:
-                movie_data.append({
-                    'id': movie.id,
-                    'link': movie.link,
-                    'code': movie.code if hasattr(movie, 'code') else None
-                })
+        self._logger.info(f"Found {len(new_movies)} pending movies to process")
+        
 
-            # 处理每个电影
-            processed_count = 0
-            
-            # 每个电影单独处理，并且每个电影使用单独的数据库事务
-            for movie_info in movie_data:
-                try:
-                    # 使用独立的事务处理每个电影，避免一个电影的错误影响其他电影
-                    from crawler.repository.movie_repository import MovieRepository
-                    from app.config.database import async_session
-                    
-                    # 创建新的数据库会话和仓库实例
-                    async with async_session() as session:
-                        # 开始事务
-                        async with session.begin():
-                            # 创建一个新的仓库实例，使用独立的会话
-                            movie_repo = MovieRepository(session)
-                            
-                            # 处理电影
-                            success = await self._process_movie(movie_info, movie_repo)
-                            if success:
-                                processed_count += 1
-                    
-                    # 添加小延迟，避免数据库操作过于频繁
-                    await asyncio.sleep(0.1)
-                except Exception as e:
-                    self._logger.error(f"Error processing movie {movie_info.get('code', movie_info['id'])}: {str(e)}")
+        # 处理每个电影
+        processed_count = 0
+        movies_details: List[Movie] = []
+        
+        # 每个电影单独处理，并且每个电影使用单独的数据库事务
+        for movie in new_movies:
+            try:
+                movie_detail = await self._process_movie(movie)
+                if movie_detail:
+                    movies_details.append(movie_detail)
+                    processed_count += 1
+            except Exception as e:
+                self._logger.error(f"Error processing movie {movie.code}: {str(e)}")
 
-            self._logger.info(f"Successfully processed {processed_count} out of {len(movie_data)} pending movies in this cycle.")
+        self._logger.info(f"Successfully processed {processed_count} out of {len(new_movies)} pending movies in this cycle.")
+        return movies_details
 
-        except Exception as e:
-            self._logger.error(f"Error processing pending movies: {str(e)}")
-
-    async def _process_movie(self, movie_info: dict, movie_repository=None) -> bool:
+    async def _process_movie(self, movie: Movie) -> Movie:
         """Process a single movie.
         
         Args:
-            movie_info: Dictionary containing movie information (id, link, code)
-            movie_repository: Optional repository instance for database operations
+            movie: Movie object to process
             
         Returns:
-            bool: True if successful, False otherwise
+            Movie: Complete movie details or None if extraction fails
         """
-        if not movie_info.get('link'):
-            self._logger.error("Movie data missing URL")
-            return False
-            
-        url = movie_info['link']
+        url = movie.link
         url = self.modify_url(url)
+        movie.link = url
         
         try:
             # Get movie HTML
             response = self._session.get(url, timeout=30)
             if response.status_code != 200:
                 self._logger.error(f"Failed to fetch movie details: HTTP {response.status_code}")
-                return False
+                return None
                 
             # Parse movie details
-            movie_details = self._movie_parser.parse_movie_page(response.text, url)
-            
-            # Ensure movie_details is a dictionary
-            if not isinstance(movie_details, dict):
-                self._logger.error(f"Invalid movie details returned: {type(movie_details)}")
-                movie_details = {}
-            
-            # 确保movie_details包含必要的字段
-            if 'id' not in movie_details and 'id' in movie_info:
-                movie_details['id'] = movie_info['id']
-            if 'code' not in movie_details and 'code' in movie_info and movie_info['code']:
-                movie_details['code'] = movie_info['code']
-            
-            # 使用独立的数据库操作保存电影详情
-            try:
-                # 使用传入的仓库实例，如果有的话
-                if movie_repository:
-                    await movie_repository.saveOrUpdate(movie_details)
-                else:
-                    # 如果没有传入仓库实例，则使用类级别的仓库
-                    await self._movie_repository.saveOrUpdate(movie_details)
-                return True
-            except Exception as db_error:
-                self._logger.error(f"Database error while saving movie {url}: {str(db_error)}")
-                return False
+            movie_detail = self._movie_parser.parse_movie_page(movie, response.text, url)
+            return movie_detail
         except Exception as e:
             self._logger.error(f"Error processing movie {url}: {str(e)}")
-            return False
+            return None
 
     def modify_url(self, url: str) -> str:
         parsed = urlparse(url)

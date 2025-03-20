@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from crawler.api.admin import crawler_router
-from crawler.schedules import movie_detail_job
+from crawler.api.schedules import movie_detail_job
 
 api_router = APIRouter()
 

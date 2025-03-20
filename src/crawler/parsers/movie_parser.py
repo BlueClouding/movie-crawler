@@ -4,9 +4,12 @@ import logging
 import re
 from typing import Dict, Any, Optional, List
 from bs4 import BeautifulSoup
+from httpx import Response
 from crawler.service.movie_detail_info import _extract_movie_id,_extract_m3u8_from_player
 from common.db.entity.movie import Movie, MovieStatus
 from crawler.utils.http import create_session
+from crawler.models.video_info import VideoInfo
+
 class MovieParser:
     """Parser for movie detail pages."""
     
@@ -14,15 +17,17 @@ class MovieParser:
         """Initialize MovieParser."""
         self._logger = logging.getLogger(__name__)
         self._session = create_session(use_proxy=True)
+
     
-    def parse_movie_page(self, html_content: str, url: str) -> Dict[str, Any]:
+    def parse_movie_page(self, movie: Movie, html_content: str, url: str) -> Optional[Movie]:
         """Get complete details for a single movie.
             Args:
+                movie (Movie): Movie object to process
                 html_content (str): HTML content of the movie page
                 url (str): URL of the movie page
                 
             Returns:
-                dict: Complete movie details or None if extraction fails
+                Optional[Movie]: Complete movie details or None if extraction fails
         """
         if not html_content or not isinstance(html_content, str) or not url:
             self._logger.error("Invalid input: must be a string with 'url' key")
@@ -30,89 +35,33 @@ class MovieParser:
             
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
-        
-            # Initialize video info with basic data
-            video_info = {
-                'url': url,
-                'id': _extract_movie_id(soup, url)  # 假设此函数已定义
-            } 
             
-            if not video_info['id']:
-                self._logger.error("Failed to extract movie ID")
-                return None
             
-            # Get video URLs info (保持不变)
-            watch_urls_info, download_urls_info = self._get_video_urls(video_info['id'])
-            
-            # 处理 watch_urls_info (保持不变)
-            if watch_urls_info:
-                m3u8_urls = []
-                for watch_info in watch_urls_info:
-                    m3u8_result = _extract_m3u8_from_player(watch_info['url'], video_info.get('cover_image', ''))
-                    if m3u8_result and m3u8_result.get('m3u8_url'):
-                        m3u8_urls.append({
-                            'index': watch_info['index'],
-                            'name': watch_info['name'],
-                            'url': m3u8_result['m3u8_url']
-                        })
-                video_info['watch_urls_info'] = m3u8_urls
-            else:
-                video_info['watch_urls_info'] = []
-                
-            # 处理 download_urls_info (保持不变)
-            if download_urls_info:
-                video_info['download_urls_info'] = download_urls_info
-            else:
-                video_info['download_urls_info'] = [{
-                    'host': 'Magnet',
-                    'index': idx,
-                    'name': magnet.get('name', str(idx + 1)),
-                    'url': magnet['url']
-                } for idx, magnet in enumerate(video_info.get('magnets', []))]
-            
-            # 设置默认值
-            video_info.setdefault('title', '')
-            video_info.setdefault('duration', '00:00:00')
-            video_info.setdefault('release_date', '1970-01-01')
-            video_info.setdefault('code', '')
-            video_info.setdefault('actresses', [])
-            video_info.setdefault('genres', [])
-            video_info.setdefault('maker', 'Das!')  # Default maker is Das!
-            video_info.setdefault('series', '')
-            video_info.setdefault('likes', 0)
-            video_info.setdefault('magnets', [])
-            video_info.setdefault('description', '')
-            video_info.setdefault('tags', [])
-            video_info.setdefault('director', '')
-            video_info.setdefault('cover_image_url', '')
-            video_info.setdefault('preview_video_url', '')
-            video_info.setdefault('thumbnail', '')
-
             # 提取标题
             title_tag = soup.find('h1')
             if title_tag:
-                video_info['title'] = title_tag.get_text(strip=True)
+                movie.title = title_tag.get_text(strip=True)
 
             # 提取代码
             code_tag = soup.find('span', text='コード:')
             if code_tag:
                 code = code_tag.find_next('span')
                 if code:
-                    video_info['code'] = code.get_text(strip=True)
+                    movie.code = code.get_text(strip=True)
 
             # 提取发布日期
             release_date_tag = soup.find('span', text='リリース日:')
             if release_date_tag:
                 release_date = release_date_tag.find_next('span')
                 if release_date:
-                    video_info['release_date'] = release_date.get_text(strip=True)
+                    movie.release_date = release_date.get_text(strip=True)
 
             # 提取时长
             duration_tag = soup.find('span', text='再生時間:')
             if duration_tag:
                 duration = duration_tag.find_next('span')
                 if duration:
-                    video_info['duration'] = duration.get_text(strip=True)
+                    movie.duration = duration.get_text(strip=True)
 
             # 提取演员
             actress_tag = soup.find('span', text='女優:')
@@ -121,7 +70,7 @@ class MovieParser:
                 if actress_span:
                     actress_name = actress_span.get_text(strip=True)
                     if actress_name:
-                        video_info['actresses'] = [actress_name]
+                        movie.actresses = [actress_name]
 
             # 提取类型
             genres_tag = soup.find('span', text='ジャンル:')
@@ -129,7 +78,7 @@ class MovieParser:
                 genres_span = genres_tag.find_next('span')
                 if genres_span:
                     genre_links = genres_span.find_all('a')
-                    video_info['genres'] = [genre.get_text(strip=True) for genre in genre_links]
+                    movie.genres = [genre.get_text(strip=True) for genre in genre_links]
 
             # 提取制作商
             maker_tag = soup.find('span', text='メーカー:')
@@ -138,7 +87,7 @@ class MovieParser:
                 if maker_span:
                     maker_name = maker_span.get_text(strip=True)
                     if maker_name:
-                        video_info['maker'] = maker_name
+                        movie.maker = maker_name
 
             # 提取系列（从“ラベル:”中提取）
             series_tag = soup.find('span', text='ラベル:')
@@ -147,7 +96,7 @@ class MovieParser:
                 if series_span:
                     series_name = series_span.get_text(strip=True)
                     if series_name:
-                        video_info['series'] = series_name
+                        movie.series = series_name
 
             # 提取“喜欢”数量
             likes_button = soup.find('button', class_='favourite')
@@ -156,7 +105,7 @@ class MovieParser:
                 if likes_span:
                     likes_text = likes_span.get_text(strip=True)
                     if likes_text.isdigit():
-                        video_info['likes'] = int(likes_text)
+                        movie.likes = int(likes_text)
 
             # 提取磁力链接
             magnets_div = soup.find('div', class_='magnets')
@@ -177,12 +126,12 @@ class MovieParser:
                             'size': size,
                             'date': date
                         })
-                video_info['magnets'] = magnets
+                movie.magnets = magnets
 
             # 提取描述（从 meta 标签中获取）
             description_meta = soup.find('meta', attrs={'name': 'description'})
             if description_meta and description_meta.get('content'):
-                video_info['description'] = description_meta['content'].strip()
+                movie.description = description_meta['content'].strip()
 
             # 提取标签
             tags_tag = soup.find('span', text='タグ:')
@@ -190,26 +139,59 @@ class MovieParser:
                 tags_span = tags_tag.find_next('span')
                 if tags_span:
                     tags = [a.get_text(strip=True) for a in tags_span.find_all('a')]
-                    video_info['tags'] = tags
+                    movie.tags = tags
 
             # 提取导演（HTML 中无此信息，保持默认值）
             director_tag = soup.find('span', text='監督:')
             if director_tag:
                 director = director_tag.find_next('span')
                 if director:
-                    video_info['director'] = director.get_text(strip=True)
+                    movie.director = director.get_text(strip=True)
 
             # 提取封面图像 URL 和预览视频 URL
             video_tag = soup.find('video')
             if video_tag:
-                video_info['cover_image_url'] = video_tag.get('poster', '')
-                video_info['preview_video_url'] = video_tag.get('src', '')
+                movie.cover_image_url = video_tag.get('poster', '')
+                movie.preview_video_url = video_tag.get('src', '')
 
             # 提取缩略图（HTML 中无明确缩略图，暂用封面图像）
-            if video_info['cover_image_url']:
-                video_info['thumbnail'] = video_info['cover_image_url']
+            if movie.cover_image_url:
+                movie.thumbnail = movie.cover_image_url
 
-            return video_info
+            # Get video URLs info (保持不变)
+            watch_urls_info, download_urls_info = self._get_video_urls(movie.id)
+            
+            # 处理 watch_urls_info (保持不变)
+            if watch_urls_info:
+                m3u8_urls = []
+                for watch_info in watch_urls_info:
+                    m3u8_result = _extract_m3u8_from_player(watch_info['url'], movie.cover_image_url)
+                    if m3u8_result and m3u8_result.get('m3u8_url'):
+                        m3u8_urls.append({
+                            'index': watch_info['index'],
+                            'name': watch_info['name'],
+                            'url': m3u8_result['m3u8_url']
+                        })
+                movie.watch_urls_info = m3u8_urls
+            else:
+                movie.watch_urls_info = []
+                
+            # 处理 download_urls_info (保持不变)
+            if download_urls_info:
+                movie.download_urls_info = download_urls_info
+            else:
+                if movie.magnets is not None:
+                    movie.download_urls_info = [{
+                        'host': 'Magnet',
+                        'index': idx,
+                        'name': magnet.get('name', str(idx + 1)),
+                        'url': magnet['url']
+                    } for idx, magnet in enumerate(movie.magnets)]
+                else:
+                    movie.download_urls_info = []
+
+
+            return movie
         except Exception as e:
             self._logger.error(f"Error getting movie detail: {str(e)}")
             import traceback
