@@ -2,13 +2,14 @@
 
 import logging
 import re
+import json
 from typing import Dict, Any, Optional, List
 from bs4 import BeautifulSoup
 from httpx import Response
-from crawler.service.movie_detail_info import _extract_movie_id,_extract_m3u8_from_player
-from common.db.entity.movie import Movie, MovieStatus
+from crawler.service.movie_detail_info import _extract_m3u8_from_player
+from common.db.entity.movie import Movie
 from crawler.utils.http import create_session
-from crawler.models.video_info import VideoInfo
+from common.db.entity.movie import MovieStatus
 
 class MovieParser:
     """Parser for movie detail pages."""
@@ -35,7 +36,6 @@ class MovieParser:
             
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
-            
             
             # 提取标题
             title_tag = soup.find('h1')
@@ -107,27 +107,6 @@ class MovieParser:
                     if likes_text.isdigit():
                         movie.likes = int(likes_text)
 
-            # 提取磁力链接
-            magnets_div = soup.find('div', class_='magnets')
-            if magnets_div:
-                magnets = []
-                for magnet_div in magnets_div.find_all('div', class_='magnet'):
-                    a_tag = magnet_div.find('a')
-                    if a_tag:
-                        url = a_tag.get('href', '')
-                        name_span = a_tag.find('span', class_='name')
-                        name = name_span.get_text(strip=True) if name_span else ''
-                        detail_items = a_tag.find_all('div', class_='detail-item')
-                        size = detail_items[0].get_text(strip=True) if len(detail_items) > 0 else ''
-                        date = detail_items[1].get_text(strip=True) if len(detail_items) > 1 else ''
-                        magnets.append({
-                            'url': url,
-                            'name': name,
-                            'size': size,
-                            'date': date
-                        })
-                movie.magnets = magnets
-
             # 提取描述（从 meta 标签中获取）
             description_meta = soup.find('meta', attrs={'name': 'description'})
             if description_meta and description_meta.get('content'):
@@ -158,45 +137,43 @@ class MovieParser:
             if movie.cover_image_url:
                 movie.thumbnail = movie.cover_image_url
 
-            # Get video URLs info (保持不变)
-            watch_urls_info, download_urls_info = self._get_video_urls(movie.id)
-            
-            # 处理 watch_urls_info (保持不变)
-            if watch_urls_info:
-                m3u8_urls = []
-                for watch_info in watch_urls_info:
-                    m3u8_result = _extract_m3u8_from_player(watch_info['url'], movie.cover_image_url)
-                    if m3u8_result and m3u8_result.get('m3u8_url'):
-                        m3u8_urls.append({
-                            'index': watch_info['index'],
-                            'name': watch_info['name'],
-                            'url': m3u8_result['m3u8_url']
-                        })
-                movie.watch_urls_info = m3u8_urls
-            else:
-                movie.watch_urls_info = []
-                
-            # 处理 download_urls_info (保持不变)
-            if download_urls_info:
-                movie.download_urls_info = download_urls_info
-            else:
-                if movie.magnets is not None:
-                    movie.download_urls_info = [{
-                        'host': 'Magnet',
-                        'index': idx,
-                        'name': magnet.get('name', str(idx + 1)),
-                        'url': magnet['url']
-                    } for idx, magnet in enumerate(movie.magnets)]
-                else:
-                    movie.download_urls_info = []
-
-
+            movie.status = MovieStatus.ONLINE.value
             return movie
         except Exception as e:
             self._logger.error(f"Error getting movie detail: {str(e)}")
             import traceback
             self._logger.error(f"Traceback: {traceback.format_exc()}")
             return None
+
+    # todo
+    def get_download_url_and_watch_url(self, movie_id: int) :
+        # Get video URLs info (保持不变)
+        watch_urls_info, download_urls_info = self._get_video_urls(movie_id)
+            
+        # 处理 watch_urls_info - 序列化为JSON字符串
+        if watch_urls_info:
+            m3u8_urls = []
+            for watch_info in watch_urls_info:
+                m3u8_result = _extract_m3u8_from_player(watch_info['url'], movie.cover_image_url)
+                if m3u8_result and m3u8_result.get('m3u8_url'):
+                    m3u8_urls.append({
+                        'index': watch_info['index'],
+                        'name': watch_info['name'],
+                        'url': m3u8_result['m3u8_url']
+                    })
+                # 将列表序列化为JSON字符串
+                movie.watch_urls_info = json.dumps(m3u8_urls)
+        else:
+            movie.watch_urls_info = json.dumps([])
+                
+        # 处理 download_urls_info - 序列化为JSON字符串
+        if download_urls_info:
+            movie.download_urls_info = json.dumps(download_urls_info)
+        else:
+            if movie.magnets is not None:
+                movie.download_urls_info = json.dumps(movie.magnets)
+            else:
+                movie.download_urls_info = json.dumps([])
         
     def extract_movie_links(self, html_content: str, base_url: str) -> List[Movie]:
         """Extract movie links from a page.
@@ -310,7 +287,7 @@ class MovieParser:
             return []
 
 
-    def _get_video_urls(self, video_id):
+    def _get_video_urls(self, video_id) -> tuple:
             """Get video URLs from ajax endpoint.
             
             Args:

@@ -47,10 +47,10 @@ class MovieDetailCrawlerService:
         self._movie_repository = movie_repository
 
     # 单次执行的方法
-    async def process_movies_details_once(self) -> List[Movie]:
+    async def process_movies_details_once(self, limit: int = 100) -> List[Movie]:
         """Process one batch of pending movies."""
         # Get pending movies from database
-        new_movies: List[Movie] = await self._movie_repository.get_new_movies(100)
+        new_movies: List[Movie] = await self._movie_repository.get_new_movies(limit)
         if not new_movies:
             self._logger.info(f"No pending movies to process.")
             return

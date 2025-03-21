@@ -236,24 +236,57 @@ def _extract_m3u8_from_player(player_url, cover_url):
             dict: Dictionary containing m3u8_url and vtt_url
         """
         try:
+            # 验证player_url是否有效
+            if not player_url:
+                logging.warning("Player URL is empty or None")
+                return {}
+                
             # 构造完整的播放器URL
-            encoded_cover = urllib.parse.quote(cover_url)
-            full_url = f"{player_url}?poster={encoded_cover}"
+            # 确保 cover_url 是字符串类型
+            try:
+                if cover_url is None:
+                    cover_url = ""
+                elif isinstance(cover_url, bytes):
+                    cover_url = cover_url.decode('utf-8', errors='replace')
+                elif not isinstance(cover_url, str):
+                    cover_url = str(cover_url)
+                    
+                # 安全地进行 URL 编码
+                try:
+                    encoded_cover = urllib.parse.quote(cover_url)
+                except Exception as encode_error:
+                    logging.warning(f"Error encoding cover URL: {str(encode_error)}. Using empty string instead.")
+                    encoded_cover = ""
+                    
+                full_url = f"{player_url}?poster={encoded_cover}"
+            except Exception as url_error:
+                logging.warning(f"Error constructing player URL: {str(url_error)}. Using original player URL.")
+                full_url = player_url
             
             # 获取播放器页面
-            response = create_session().get(full_url, timeout=10)
-            if response.status_code != 200:
+            try:
+                response = create_session().get(full_url, timeout=15)  # 增加超时时间
+                if response.status_code != 200:
+                    logging.warning(f"Failed to get player page, status code: {response.status_code}")
+                    return {}
+            except Exception as request_error:
+                logging.error(f"Error requesting player page: {str(request_error)}")
                 return {}
                 
             # 解析页面获取m3u8 URL
-            stream_data = _parse_player_page(response.text)
-            if not stream_data:
+            try:
+                stream_data = _parse_player_page(response.text)
+                if not stream_data:
+                    logging.warning("No stream data found in player page")
+                    return {}
+                    
+                return {
+                    'm3u8_url': stream_data.get('stream'),
+                    'vtt_url': stream_data.get('vtt')
+                }
+            except Exception as parse_error:
+                logging.error(f"Error parsing player page: {str(parse_error)}")
                 return {}
-                
-            return {
-                'm3u8_url': stream_data.get('stream'),
-                'vtt_url': stream_data.get('vtt')
-            }
             
         except Exception as e:
             logging.error(f"Error extracting m3u8 URL: {str(e)}")

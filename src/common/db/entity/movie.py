@@ -38,9 +38,10 @@ class Movie(DBBaseModel):
     director = Column(String(55), nullable=True)
     maker = Column(String(55), nullable=True)
     actresses = Column(ARRAY(String(55)), nullable=True)
-    watch_urls_info = Column(ARRAY(Text), nullable=True)
-    download_urls_info = Column(ARRAY(Text), nullable=True)
-    magnets = Column(ARRAY(Text), nullable=True)
+    watch_urls_info = Column(Text, nullable=True)
+    download_urls_info = Column(Text, nullable=True)
+    magnets = Column(Text, nullable=True)
+    series = Column(Text, nullable=True)
 
     def __repr__(self):
         return f"<Movie {self.code}>"
