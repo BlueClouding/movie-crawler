@@ -1,0 +1,324 @@
+/* 主题变量 */
+:root {
+  --primary-color: #e50914;
+  --secondary-color: #221f1f;
+  --background-color: #141414;
+  --text-color: #ffffff;
+  --gray-color: #808080;
+  --light-gray: #b3b3b3;
+}
+
+/* 基础样式 */
+body {
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: var(--background-color);
+  color: var(--text-color);
+  overflow-x: hidden;
+}
+
+/* 导航栏样式 */
+.nav-link {
+  color: var(--light-gray);
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.3s ease;
+}
+
+.nav-link:hover, .nav-link.active {
+  color: var(--text-color);
+}
+
+.search-input {
+  background-color: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  color: var(--text-color);
+  width: 240px;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--gray-color);
+}
+
+/* 英雄区域样式 */
+.hero-section {
+  width: 100%;
+  height: 90vh;
+  margin-bottom: 2rem;
+}
+
+.hero-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 电影部分样式 */
+.movie-section {
+  margin-bottom: 3rem;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  color: var(--text-color);
+}
+
+.movie-slider {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+  gap: 1rem;
+  padding-bottom: 1rem;
+}
+
+.movie-slider::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+.movie-card {
+  flex: 0 0 auto;
+  transition: transform 0.3s ease;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.movie-card:hover {
+  transform: scale(1.05);
+  z-index: 1;
+}
+
+.movie-card-inner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.movie-poster-wide {
+  width: 360px;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 4px;
+  transition: transform 0.3s ease;
+}
+
+.movie-card:hover .movie-poster-wide {
+  transform: scale(1.1);
+}
+
+.movie-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.5) 50%, rgba(0, 0, 0, 0.3) 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.movie-card:hover .movie-overlay {
+  opacity: 1;
+}
+
+.movie-info {
+  z-index: 1;
+}
+
+.movie-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: white;
+}
+
+.movie-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #ccc;
+}
+
+.play-button {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 50px;
+  height: 50px;
+  background-color: rgba(229, 9, 20, 0.8);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1.2rem;
+  transition: all 0.3s ease;
+}
+
+.movie-card:hover .play-button {
+  background-color: var(--primary-color);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+/* 按钮样式 */
+.btn-primary {
+  background-color: var(--primary-color);
+  color: var(--text-color);
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  transition: background-color 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background-color: #f40612;
+}
+
+.btn-secondary {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: var(--text-color);
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  transition: background-color 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .hero-section {
+    height: 60vh;
+  }
+  
+  .movie-poster-wide {
+    width: 280px;
+    height: 160px;
+  }
+  
+  .section-title {
+    font-size: 1.25rem;
+  }
+  
+  .play-button {
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+  }
+  
+  .big-play-button {
+    width: 60px;
+    height: 60px;
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .movie-poster-wide {
+    width: 240px;
+    height: 135px;
+  }
+  
+  .movie-title {
+    font-size: 0.9rem;
+  }
+  
+  .movie-meta {
+    font-size: 0.7rem;
+  }
+}
+
+/* 播放器样式 */
+.player-wrapper {
+  position: relative;
+  width: 100%;
+  height: 0;
+  padding-bottom: 56.25%; /* 16:9 宽高比 */
+  background-color: #000;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.player-poster {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.4) 60%, rgba(0, 0, 0, 0.2) 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.big-play-button {
+  width: 80px;
+  height: 80px;
+  background-color: rgba(229, 9, 20, 0.8);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.big-play-button:hover {
+  background-color: var(--primary-color);
+  transform: scale(1.1);
+}
+
+/* 页脚样式 */
+footer a {
+  transition: color 0.3s ease;
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.hero-content {
+  animation: fadeIn 1.5s ease-in-out;
+}
+
+.movie-section {
+  animation: fadeIn 1s ease-in-out;
+  animation-fill-mode: both;
+}
+
+.movie-section:nth-child(1) { animation-delay: 0.2s; }
+.movie-section:nth-child(2) { animation-delay: 0.4s; }
+.movie-section:nth-child(3) { animation-delay: 0.6s; }
+.movie-section:nth-child(4) { animation-delay: 0.8s; }

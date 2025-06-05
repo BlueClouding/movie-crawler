@@ -45,5 +45,10 @@ fastapi-cors>=0.0.6
 # 日志
 loguru>=0.7.2
 
+# Playwright and Stealth
+playwright>=1.40.0
+playwright-stealth>=1.0.6
+python-dotenv>=1.0.0  # For environment variables
+
 # Python版本
 # python>=3.13

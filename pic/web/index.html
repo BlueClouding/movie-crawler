@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频应用 - 网页版</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-black text-white">
+  <!-- 导航栏 -->
+  <header class="fixed top-0 left-0 right-0 z-50 bg-black bg-opacity-90 backdrop-filter backdrop-blur-md">
+    <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+      <div class="flex items-center">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/7/7a/Logonetflix.png" alt="Logo" class="h-8 mr-8">
+        <nav class="hidden md:flex space-x-6">
+          <a href="#" class="nav-link active">首页</a>
+          <a href="#" class="nav-link">电影</a>
+          <a href="#" class="nav-link">剧集</a>
+          <a href="#" class="nav-link">最新上线</a>
+          <a href="#" class="nav-link">我的列表</a>
+        </nav>
+      </div>
+      <div class="flex items-center space-x-4">
+        <div class="relative">
+          <input type="text" placeholder="搜索电影、剧集..." class="search-input hidden md:block">
+          <i class="fas fa-search absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 md:hidden"></i>
+        </div>
+        <i class="fas fa-bell text-white text-xl"></i>
+        <div class="relative group">
+          <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?ixlib=rb-1.2.1&auto=format&fit=crop&w=100&q=80" alt="Profile" class="w-8 h-8 rounded cursor-pointer">
+          <div class="absolute right-0 mt-2 w-48 bg-black bg-opacity-90 border border-gray-800 rounded shadow-lg py-2 hidden group-hover:block">
+            <a href="#" class="block px-4 py-2 hover:bg-gray-800">个人资料</a>
+            <a href="#" class="block px-4 py-2 hover:bg-gray-800">账户设置</a>
+            <a href="#" class="block px-4 py-2 hover:bg-gray-800">退出登录</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="pt-16">
+    <!-- 主要特色内容 -->
+    <section class="hero-section relative">
+      <div class="hero-content">
+        <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80" alt="Featured" class="w-full h-screen object-cover">
+        <div class="absolute inset-0 bg-gradient-to-r from-black to-transparent"></div>
+        <div class="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black to-transparent"></div>
+        <div class="absolute top-1/4 left-0 p-8 md:p-16 max-w-2xl">
+          <h1 class="text-4xl md:text-6xl font-bold mb-4">黑寡妇</h1>
+          <div class="flex items-center mb-6">
+            <span class="text-green-500 font-bold mr-4">98% 匹配</span>
+            <span class="text-gray-300 mr-4">2021</span>
+            <span class="border border-gray-300 text-xs px-1 mr-4">16+</span>
+            <span class="text-gray-300">2小时 14分钟</span>
+          </div>
+          <p class="text-gray-300 text-lg mb-8 line-clamp-3">娜塔莎·罗曼诺夫/黑寡妇的独立电影，讲述她在成为复仇者联盟一员前的故事。在这部惊险刺激的间谍惊悚片中，她必须面对自己黑暗的过去。</p>
+          <div class="flex space-x-4">
+            <button class="btn-primary px-8 py-3">
+              <i class="fas fa-play mr-2"></i>播放
+            </button>
+            <button class="btn-secondary px-8 py-3">
+              <i class="fas fa-info-circle mr-2"></i>更多信息
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 继续观看 -->
+    <section class="movie-section">
+      <div class="container mx-auto px-4 py-8">
+        <h2 class="section-title">继续观看</h2>
+        <div class="movie-slider">
+          <div class="movie-card relative">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">复仇者联盟4</h3>
+                  <div class="movie-meta">
+                    <span>2019</span>
+                    <span>动作/科幻</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+            <div class="absolute bottom-0 left-0 w-full h-1 bg-gray-600">
+              <div class="bg-red-600 h-full" style="width: 75%;"></div>
+            </div>
+          </div>
+          <div class="movie-card relative">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1616530940355-351fabd9524b?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">黑豹</h3>
+                  <div class="movie-meta">
+                    <span>2018</span>
+                    <span>动作/冒险</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+            <div class="absolute bottom-0 left-0 w-full h-1 bg-gray-600">
+              <div class="bg-red-600 h-full" style="width: 30%;"></div>
+            </div>
+          </div>
+          <div class="movie-card relative">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1512113569142-8a60fccc7caa?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">神奇女侠</h3>
+                  <div class="movie-meta">
+                    <span>2017</span>
+                    <span>动作/奇幻</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+            <div class="absolute bottom-0 left-0 w-full h-1 bg-gray-600">
+              <div class="bg-red-600 h-full" style="width: 45%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 热门内容 -->
+    <section class="movie-section">
+      <div class="container mx-auto px-4 py-8">
+        <h2 class="section-title">热门内容</h2>
+        <div class="movie-slider">
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">黑寡妇</h3>
+                  <div class="movie-meta">
+                    <span>2021</span>
+                    <span>动作/冒险</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1478720568477-152d9b164e26?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">惊奇队长</h3>
+                  <div class="movie-meta">
+                    <span>2019</span>
+                    <span>动作/科幻</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1543536448-d209d2d13a1c?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">蜘蛛侠：英雄远征</h3>
+                  <div class="movie-meta">
+                    <span>2019</span>
+                    <span>动作/冒险</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 动作电影 -->
+    <section class="movie-section">
+      <div class="container mx-auto px-4 py-8">
+        <h2 class="section-title">动作电影</h2>
+        <div class="movie-slider">
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1535016120720-40c646be5580?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">速度与激情9</h3>
+                  <div class="movie-meta">
+                    <span>2021</span>
+                    <span>动作/冒险</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1536440136628-849c177e76a1?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">碟中谍7</h3>
+                  <div class="movie-meta">
+                    <span>2023</span>
+                    <span>动作/谍战</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">黑寡妇</h3>
+                  <div class="movie-meta">
+                    <span>2021</span>
+                    <span>动作/冒险</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 喜剧电影 -->
+    <section class="movie-section">
+      <div class="container mx-auto px-4 py-8">
+        <h2 class="section-title">喜剧电影</h2>
+        <div class="movie-slider">
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1616530940355-351fabd9524b?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">自由人</h3>
+                  <div class="movie-meta">
+                    <span>2021</span>
+                    <span>喜剧/动作</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1559108318-39ed452bb6c9?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">丛林奇航</h3>
+                  <div class="movie-meta">
+                    <span>2021</span>
+                    <span>喜剧/冒险</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="movie-card">
+            <div class="movie-card-inner">
+              <img src="https://images.unsplash.com/photo-1543536448-d209d2d13a1c?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80" alt="Movie" class="movie-poster-wide">
+              <div class="movie-overlay">
+                <div class="movie-info">
+                  <h3 class="movie-title">雷神4：爱与雷霆</h3>
+                  <div class="movie-meta">
+                    <span>2022</span>
+                    <span>喜剧/动作</span>
+                    <span>HD</span>
+                  </div>
+                </div>
+                <div class="play-button">
+                  <i class="fas fa-play"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="bg-black bg-opacity-90 py-8 mt-16">
+    <div class="container mx-auto px-4">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div>
+          <h3 class="text-gray-400 font-bold mb-4">公司</h3>
+          <ul class="space-y-2">
+            <li><a href="#" class="text-gray-500 hover:text-white">关于我们</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-white">工作机会</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-white">联系我们</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-gray-400 font-bold mb-4">帮助中心</h3>
+          <ul class="space-y-2">
+            <li><a href="#" class="text-gray-500 hover:text-white">常见问题</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-white">账户信息</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-white">支持中心</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-gray-400 font-bold mb-4">法律</h3>
+          <ul class="space-y-2">
+            <li><a href="#" class="text-gray-500 hover:text-white">隐私政策</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-white">服务条款</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-white">Cookie 偏好</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-gray-400 font-bold mb-4">关注我们</h3>
+          <div class="flex space-x-4">
+            <a href="#" class="text-gray-500 hover:text-white text-xl"><i class="fab fa-facebook"></i></a>
+            <a href="#" class="text-gray-500 hover:text-white text-xl"><i class="fab fa-twitter"></i></a>
+            <a href="#" class="text-gray-500 hover:text-white text-xl"><i class="fab fa-instagram"></i></a>
+            <a href="#" class="text-gray-500 hover:text-white text-xl"><i class="fab fa-youtube"></i></a>
+          </div>
+        </div>
+      </div>
+      <div class="mt-8 pt-8 border-t border-gray-800 text-center text-gray-500">
+        <p>© 2025 视频应用. 保留所有权利.</p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
