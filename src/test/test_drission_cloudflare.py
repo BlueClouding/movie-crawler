@@ -1,13 +1,16 @@
 """
 使用 DrissionPage 绕过 Cloudflare 检测的测试脚本。
 演示如何将 CloudflareBypassBrowser 集成到现有的爬虫系统中。
+支持多语言版本的网站爬取。
 """
 import sys
 import time
 import random
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import json
+import re
+from urllib.parse import urljoin
 
 from loguru import logger
 from bs4 import BeautifulSoup
@@ -17,6 +20,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 # 导入我们的 CloudflareBypassBrowser 类
 from app.utils.drission_utils import CloudflareBypassBrowser
+from common.enums.enums import SupportedLanguage
 
 
 class CloudflareCrawler:
@@ -24,18 +28,29 @@ class CloudflareCrawler:
     使用 DrissionPage 绕过 Cloudflare 检测的爬虫类
     
     这个类演示了如何将 CloudflareBypassBrowser 集成到现有爬虫架构中
+    支持多语言版本的网站爬取
     """
     
-    def __init__(self, base_url: str, max_pages: int = 3):
+    # 支持的语言和对应的URL前缀
+    LANGUAGE_URL_PREFIXES = {
+        SupportedLanguage.ENGLISH: "/en",
+        SupportedLanguage.JAPANESE: "/ja",
+        SupportedLanguage.CHINESE: "/zh",
+        SupportedLanguage.KOREAN: "/ko",
+    }
+    
+    def __init__(self, base_url: str, max_pages: int = 3, language: SupportedLanguage = SupportedLanguage.JAPANESE):
         """
         初始化 CloudflareCrawler
         
         Args:
             base_url: 要爬取的网站基础URL
             max_pages: 要爬取的最大页数
+            language: 爬取的语言版本
         """
         self.base_url = base_url
         self.max_pages = max_pages
+        self.language = language
         self.browser = None
         
         # 创建浏览器数据持久化目录
@@ -56,27 +71,57 @@ class CloudflareCrawler:
         )
         logger.info("浏览器初始化完成")
     
-    def crawl_actress_list(self, start_page: int = 1) -> List[Dict]:
+    def get_language_url(self, base_url: str) -> str:
+        """
+        根据选择的语言生成对应的URL
+        
+        Args:
+            base_url: 基础URL
+            
+        Returns:
+            带有语言前缀的URL
+        """
+        # 如果基础URL已经包含语言前缀，则直接返回
+        for prefix in self.LANGUAGE_URL_PREFIXES.values():
+            if prefix in base_url:
+                return base_url
+        
+        # 添加语言前缀
+        language_prefix = self.LANGUAGE_URL_PREFIXES.get(self.language, "")
+        if language_prefix:
+            # 确保 URL 格式正确
+            if base_url.endswith("/"):
+                base_url = base_url[:-1]
+            return f"{base_url}{language_prefix}"
+        
+        return base_url
+
+    def crawl_actress_list(self, start_page: int = 1, headless: bool = False) -> List[Dict]:
         """
         爬取女优列表页，绕过 Cloudflare 保护
         
         Args:
             start_page: 起始页码
+            headless: 是否使用无头模式
             
         Returns:
             包含女优信息的字典列表
         """
         if not self.browser:
-            self.setup_browser(headless=False)  # 显示浏览器便于调试
+            self.setup_browser(headless=headless)
+        
+        # 生成带有语言前缀的URL
+        language_base_url = self.get_language_url(self.base_url)
+        logger.info(f"使用语言版本: {self.language.value}, URL: {language_base_url}")
         
         all_actresses = []
         
         for page_num in range(start_page, start_page + self.max_pages):
             # 构造页面 URL
             if page_num == 1:
-                url = self.base_url
+                url = language_base_url
             else:
-                url = f"{self.base_url}?page={page_num}"
+                url = f"{language_base_url}?page={page_num}"
             
             logger.info(f"正在爬取第 {page_num} 页: {url}")
             
@@ -208,7 +253,7 @@ class CloudflareCrawler:
 
 def main():
     """主函数，运行爬虫"""
-    import random  # 导入随机模块
+    import argparse
     
     # 配置日志
     logs_dir = Path('logs')
@@ -228,15 +273,53 @@ def main():
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
     
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="使用 DrissionPage 绕过 Cloudflare 检测的测试脚本")
+    parser.add_argument(
+        "--language", 
+        type=str, 
+        default="ja", 
+        choices=["en", "ja", "zh", "ko"],
+        help="爬取的语言版本 (en: 英文, ja: 日文, zh: 中文, ko: 韩文)"
+    )
+    parser.add_argument(
+        "--pages", 
+        type=int, 
+        default=2, 
+        help="爬取的页面数"
+    )
+    parser.add_argument(
+        "--headless", 
+        action="store_true", 
+        help="使用无头模式"
+    )
+    
+    args = parser.parse_args()
+    
+    # 根据命令行参数选择语言
+    language_map = {
+        "en": SupportedLanguage.ENGLISH,
+        "ja": SupportedLanguage.JAPANESE,
+        "zh": SupportedLanguage.CHINESE,
+        "ko": SupportedLanguage.KOREAN,
+    }
+    language = language_map.get(args.language, SupportedLanguage.JAPANESE)
+    
     # 目标网站
-    base_url = "https://missav.ai/ja/actresses"  # 示例 URL
+    base_url = "https://missav.ai/actresses"  # 基础 URL
+    
+    logger.info(f"使用语言: {args.language}, 页数: {args.pages}, 无头模式: {args.headless}")
     
     # 创建并运行爬虫
-    crawler = CloudflareCrawler(base_url=base_url, max_pages=2)
+    crawler = CloudflareCrawler(
+        base_url=base_url, 
+        max_pages=args.pages,
+        language=language
+    )
     
     try:
         # 爬取女优信息
-        actresses = crawler.crawl_actress_list()
+        actresses = crawler.crawl_actress_list(headless=args.headless)
         logger.info(f"共爬取了 {len(actresses)} 位女优信息")
         
         # 将结果保存到文件

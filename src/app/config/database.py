@@ -28,8 +28,12 @@ Base = declarative_base()
 # 创建上下文变量来存储当前会话
 _session_context: ContextVar[Optional[AsyncSession]] = ContextVar('_session_context', default=None)
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    # 尝试从上下文中获取会话
+async def get_current_session() -> AsyncSession:
+    """获取当前上下文中的数据库会话
+    
+    Returns:
+        当前上下文中的数据库会话，如果不存在则返回None
+    """
     session = _session_context.get()
     if session is not None:
         yield session

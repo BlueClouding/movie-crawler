@@ -303,7 +303,6 @@ class CloudflareBypassBrowser:
                     pass
             
             # 等待一段时间再检查
-            time.sleep(1)
         
         logger.warning(f"等待 Cloudflare 挑战超时，耗时 {max_wait} 秒")
         return False
@@ -395,8 +394,7 @@ class CloudflareBypassBrowser:
             return
             
         try:
-            self.page.run_js("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1)
+            self.page.run_js("window.scrollTo(0, document.body.scrollHeight);")            
         except Exception as e:
             logger.error(f"滚动失败: {e}")
     
@@ -411,8 +409,7 @@ class CloudflareBypassBrowser:
             return
             
         try:
-            self.page.run_js(f"window.scrollBy(0, {y_offset});")
-            time.sleep(0.5)
+            self.page.run_js(f"window.scrollBy(0, {y_offset});")            
         except Exception as e:
             logger.error(f"滚动失败: {e}")
     
@@ -491,7 +488,7 @@ def test_cloudflare_bypass(url: str = "https://missav.ai/ja"):
             
     finally:
         # 等待一会儿再关闭浏览器
-        browser.wait(5)
+        browser.wait(2)
         browser.close()
 
 
