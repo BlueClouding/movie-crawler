@@ -39,7 +39,13 @@ CREATE TABLE movie_titles (
 -- 创建演员表
 CREATE TABLE actresses (
     id SERIAL PRIMARY KEY,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    name TEXT NOT NULL,
+    language supported_language NOT NULL,
+    avatar TEXT,
+    debut_year INTEGER,
+    link TEXT,
+    create_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    update_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 创建演员名称多语言表
