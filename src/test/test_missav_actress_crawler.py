@@ -162,7 +162,7 @@ class ActressCrawler:
         })
         
         # Set a default referer
-        session.headers['Referer'] = 'https://123av.com/ja/actresses'
+        session.headers['Referer'] = 'https://123av.com/ja/genres'
         
         # Verify SSL but don't warn about it
         session.verify = True

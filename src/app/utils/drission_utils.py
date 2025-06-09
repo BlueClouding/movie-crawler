@@ -166,7 +166,7 @@ class CloudflareBypassBrowser:
         except Exception as e:
             logger.warning(f"注入反检测JS脚本失败: {e}")
     
-    def get(self, url: str, wait_for_cf: bool = False, timeout: int = 30) -> bool:
+    def get(self, url: str, wait_for_cf: bool = False, timeout: int = 30, wait_for_full_load: bool = False, dom_ready_timeout: int = 5) -> bool:
         """
         打开URL并处理Cloudflare挑战
         
@@ -174,7 +174,9 @@ class CloudflareBypassBrowser:
             url: 要访问的URL
             wait_for_cf: 是否等待Cloudflare挑战完成
             timeout: 访问超时时间（秒）
-            
+            wait_for_full_load: 是否等待页面完全加载，默认为False只等待DOM就绪
+            dom_ready_timeout: DOM就绪等待超时时间（秒），默认5秒
+        
         Returns:
             是否成功打开页面
         """
@@ -183,7 +185,55 @@ class CloudflareBypassBrowser:
             
         try:
             logger.info(f"正在访问: {url}")
-            self.page.get(url, timeout=timeout)
+            # 设置页面加载策略
+            if not wait_for_full_load:
+                # 禁用图片、CSS、字体等资源加载
+                try:
+                    # 使用JavaScript禁用图片和其他资源加载
+                    self.page.run_js("""
+                    // 禁用图片加载
+                    document.addEventListener('DOMContentLoaded', function() {
+                        var images = document.getElementsByTagName('img');
+                        for (var i = 0; i < images.length; i++) {
+                            images[i].src = '';
+                        }
+                        // 禁用CSS
+                        var links = document.getElementsByTagName('link');
+                        for (var i = 0; i < links.length; i++) {
+                            if (links[i].rel === 'stylesheet') {
+                                links[i].href = '';
+                            }
+                        }
+                    });
+                    """)
+                except Exception as e:
+                    logger.warning(f"禁用资源加载失败: {e}")
+            
+            # 开始导航到页面，但使用较短的超时时间
+            actual_timeout = timeout if wait_for_full_load else min(dom_ready_timeout, timeout)
+            self.page.get(url, timeout=actual_timeout)
+            
+            # 如果不需要等待完全加载，在DOM就绪后立即停止加载
+            if not wait_for_full_load:
+                # 停止加载其他资源
+                self.page.run_js('window.stop()')
+                # 使用JavaScript取消未完成的请求
+                try:
+                    # 使用更简单的方法清除资源
+                    self.page.run_js("""
+                    // 清除所有图片资源
+                    var imgs = document.getElementsByTagName('img');
+                    for (var i = 0; i < imgs.length; i++) {
+                        imgs[i].src = '';
+                    }
+                    // 清除所有iframe
+                    var frames = document.getElementsByTagName('iframe');
+                    for (var i = 0; i < frames.length; i++) {
+                        frames[i].src = 'about:blank';
+                    }
+                    """)
+                except Exception as e:
+                    logger.warning(f"清除资源失败: {e}")
             
             # 检查是否遇到Cloudflare挑战
             if self._is_cloudflare_challenge():

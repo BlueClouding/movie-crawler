@@ -49,3 +49,6 @@ async def get_current_session() -> AsyncSession:
             raise
         finally:
             await session.close()
+            
+# 为了兼容现有代码，添加别名
+get_db_session = get_current_session
