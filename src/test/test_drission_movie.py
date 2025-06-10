@@ -38,6 +38,7 @@ class MovieDetailCrawler:
             movie_id: 电影ID，如 'shmo-162'，FC2-PPV-1020621
         """
         self.movie_id = movie_id
+        self.language = "ja"  # 默认使用日语
         
         # 创建浏览器数据持久化目录
         self.user_data_dir = Path.home() / ".cache" / "cloudflare_bypass_browser"
@@ -63,6 +64,9 @@ class MovieDetailCrawler:
             "pt",      # Portuguese
             "hi"       # Hindi
         ]
+        
+        # 初始化字段模式
+        self.field_patterns = self.initialize_field_patterns()
     
     def setup_browser(self, headless: bool = False):
         """
@@ -130,7 +134,7 @@ class MovieDetailCrawler:
             bool: 返回是否成功访问页面
         """
         # 构建基本 URL
-        base_url = f"https://missav.ai/{self.movie_id}"
+        base_url = f"https://missav.ai/{self.language}/{self.movie_id}"
         
         try:
             # 访问页面并等待通过Cloudflare检测
@@ -174,11 +178,10 @@ class MovieDetailCrawler:
             self.setup_browser(headless=headless)
         
         results = {}
-        parallel_languages = []
         
         try:
             # 直接访问无语言参数的基础URL
-            base_url = f"https://missav.ai/{self.movie_id}"
+            base_url = f"https://missav.ai/{self.language}/{self.movie_id}"
             logger.info(f"正在访问基础URL: {base_url}")
             
             # 访问页面并获取基础语言版本的数据
@@ -192,25 +195,18 @@ class MovieDetailCrawler:
             
             # 获取当前页面URL并判断语言
             # 注意：CloudflareBypassBrowser不支持url属性
-            base_language = "en"  # 默认使用英语
+            base_language = "ja"  # 默认使用英语
             try:
-                current_url = base_url  # 默认值
                 
                 # 如果是DrissionPage类，尝试直接获取URL
                 if hasattr(self.browser, 'url'):
-                    current_url = self.browser.url
+                    base_language = self.browser.url
                 # 如果是CloudflareBypassBrowser，尝试从页面内容推断
                 else:
                     html = self.browser.get_html()
                     
                 # 从URL中尝试提取语言代码
                 soup = BeautifulSoup(html, 'html.parser')
-                for lang_link in soup.select('a[hreflang]'):
-                    if lang_link.has_attr('hreflang') and lang_link.has_attr('href'):
-                        if self.movie_id in lang_link['href']:
-                            # 找到当前页面对应的语言链接
-                            base_language = lang_link['hreflang'] or "en"
-                            break
             except Exception as e:
                 base_language = "en"  # 错误时默认使用英语
                 logger.warning(f"判断页面语言出错，使用默认值英语: {e}")
@@ -225,42 +221,13 @@ class MovieDetailCrawler:
             else:
                 logger.info("页面已成功加载！")
             
-            # 尝试获取所有支持的语言版本
-            for language in self.languages:
-                if language == base_language:
-                    # 对于基础语言，直接使用已有数据
-                    results[language] = base_data
-                    logger.info(f"{language}语言版本数据获取成功")
-                else:
-                    # 收集其他需要并行获取的语言
-                    parallel_languages.append(language)
-            
-            # 使用线程池并行获取其他语言版本
-            logger.info(f"开始并行获取其他 {len(parallel_languages)} 种语言版本...")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                # 提交所有语言爬取任务
-                future_to_lang = {executor.submit(self.crawl_movie_in_language, lang): lang for lang in parallel_languages}
-                
-                # 收集结果
-                for future in concurrent.futures.as_completed(future_to_lang):
-                    lang = future_to_lang[future]
-                    try:
-                        lang_data = future.result()
-                        if lang_data:
-                            results[lang] = lang_data
-                            logger.info(f"{lang}语言版本数据并行获取成功")
-                    except Exception as e:
-                        logger.error(f"并行获取 {lang} 语言版本时出错: {e}")
-            
-            logger.info(f"已获取 {len(results)} 种语言的电影详情")
             
             # 展示收集结果概要
-            for lang, data in results.items():
-                title = data.get('title', '无标题')
-                actresses = ', '.join(data.get('actresses', [])[:3])
-                if len(data.get('actresses', [])) > 3:
-                    actresses += '...' 
-                logger.info(f"- {lang}: {title[:30]}{' ...' if len(title) > 30 else ''} | {actresses}")
+            title = base_data.get('title', '无标题')
+            actresses = ', '.join(base_data.get('actresses', [])[:3])
+            if len(base_data.get('actresses', [])) > 3:
+                actresses += '...' 
+            logger.info(f"- {base_language}: {title[:30]}{' ...' if len(title) > 30 else ''} | {actresses}")
             
         except Exception as e:
             logger.error(f"爬虫出错: \n{e}")
@@ -272,7 +239,7 @@ class MovieDetailCrawler:
             except Exception as e:
                 logger.error(f"关闭浏览器出错: {e}")
         
-        return results
+        return base_data
     
     def is_cloudflare_page(self, html: str) -> bool:
         """
@@ -326,7 +293,7 @@ class MovieDetailCrawler:
             logger.error(f"BeautifulSoup解析错误: {e}")
             
         # 默认返回安全的选项
-        return True
+        return False
             
     def crawl_movie_in_language(self, language: str) -> Optional[Dict]:
         """
@@ -615,12 +582,35 @@ class MovieDetailCrawler:
                     actresses = extracted_actress.split(',') if ',' in extracted_actress else [extracted_actress]  
                     result["actresses"] = [a.strip() for a in actresses if a.strip()]
                 else:
-                    # 否则使用一般选择器
-                    actress_selectors = [
+                    # 使用字段模式中的女优关键词构建选择器
+                    actress_terms = self.field_patterns.get("actress", [])
+                    actress_selectors = []
+                    
+                    # 基础选择器
+                    base_selectors = [
                         '[class*="actress"] a', '[class*="star"] a', 
                         '.cast a', '.performer a', '.actor a',
                         '[class*="cast-item"] a', '.video-performer a'
                     ]
+                    
+                    # 添加基础选择器
+                    actress_selectors.extend(base_selectors)
+                    
+                    # 为每个女优关键词添加特定选择器
+                    for term in actress_terms:
+                        actress_selectors.append(f'[class*="{term.lower()}"] a')
+                        actress_selectors.append(f'[data-label="{term}"] a')
+                        actress_selectors.append(f'[data-label*="{term}"] a')
+                        actress_selectors.append(f'.{term.lower()} a')
+                        
+                    # 日语特定选择器
+                    if language == "ja":
+                        actress_selectors.extend([
+                            '.av-actress a', '.av-performer a', '.jav-actress a',
+                            '[class*="女優"] a', '[class*="出演者"] a', '[class*="出演"] a',
+                            '[data-label="女優"] a', '[data-label="出演者"] a'
+                        ])
+                    
                     found_actresses = []
                     for selector in actress_selectors:
                         try:
@@ -685,22 +675,31 @@ class MovieDetailCrawler:
                         key = parts[0].strip().lower()
                         value = parts[1].strip()
                         
-                        # 匹配关键字到标准字段
-                        if any(x in key for x in ['发行', 'release', '日期', 'date']):
+                        # 使用字段模式进行匹配
+                        # 发行日期
+                        if self._match_field_pattern(key, self.field_patterns.get("releaseDate", [])):
                             meta_data['release_date'] = value
-                        elif any(x in key for x in ['时长', 'duration', '長さ', '长度', 'length', '時間']):
-                            meta_data['duration'] = value
-                        elif any(x in key for x in ['制作', 'maker', 'studio', '工作室', 'producer']):
+                        # 制作商/发行商
+                        elif self._match_field_pattern(key, self.field_patterns.get("maker", [])):
                             meta_data['maker'] = value
-                        elif any(x in key for x in ['系列', 'series', 'シリーズ']):
+                        # 系列
+                        elif self._match_field_pattern(key, self.field_patterns.get("series", [])):
                             meta_data['series'] = value
-                        elif any(x in key for x in ['演员', 'actor', 'actress', 'star', '出演', '女优']):
+                        # 演员/女优
+                        elif self._match_field_pattern(key, self.field_patterns.get("actress", [])) or \
+                             self._match_field_pattern(key, self.field_patterns.get("maleActor", [])):
                             meta_data['actor'] = value
-                        elif any(x in key for x in ['导演', 'director']):
+                        # 导演
+                        elif self._match_field_pattern(key, self.field_patterns.get("director", [])):
                             meta_data['director'] = value
-                        elif any(x in key for x in ['标签', 'tag', 'genre', '标签', '類別']):
+                        # 标签/类型
+                        elif self._match_field_pattern(key, self.field_patterns.get("genre", [])) or \
+                             self._match_field_pattern(key, self.field_patterns.get("label", [])):
                             tags = [tag.strip() for tag in value.split(',')] if ',' in value else [value.strip()]
                             meta_data['genres'] = tags
+                        # 时长 - 使用特定关键词匹配
+                        elif any(x in key for x in ['时长', 'duration', '長さ', '长度', 'length', '時間']):
+                            meta_data['duration'] = value
         
             # 尝试提取单独的元数据标签
             for meta_tag in soup.select('meta'):
@@ -713,11 +712,52 @@ class MovieDetailCrawler:
                         meta_data['genres'] = keywords
                     elif 'description' in name and not meta_data.get('description'):
                         meta_data['description'] = content
+                        
+            # 尝试使用特定选择器查找元数据
+            # 制作商
+            if not meta_data.get('maker'):
+                for pattern in self.field_patterns.get("maker", []):
+                    maker_selector = f'[class*="maker"]:contains("{pattern}"), [class*="studio"]:contains("{pattern}")'                    
+                    maker_elem = soup.select_one(maker_selector)
+                    if maker_elem and ':' in maker_elem.text:
+                        meta_data['maker'] = maker_elem.text.split(':', 1)[1].strip()
+                        break
+            
+            # 女优
+            if not meta_data.get('actor'):
+                for pattern in self.field_patterns.get("actress", []):
+                    actress_selector = f'[class*="actress"]:contains("{pattern}"), [class*="cast"]:contains("{pattern}")'                    
+                    actress_elem = soup.select_one(actress_selector)
+                    if actress_elem and ':' in actress_elem.text:
+                        meta_data['actor'] = actress_elem.text.split(':', 1)[1].strip()
+                        break
         except Exception as e:
             logger.warning(f"提取元数据时出错: {e}")
         
         return meta_data
     
+    def _match_field_pattern(self, key: str, patterns: List[str]) -> bool:
+        """
+        检查关键字是否匹配任何字段模式
+        
+        Args:
+            key: 要检查的关键字
+            patterns: 要匹配的模式列表
+            
+        Returns:
+            bool: 如果关键字匹配任何模式，则返回 True
+        """
+        key = key.lower()
+        for pattern in patterns:
+            pattern_lower = pattern.lower()
+            # 检查关键字是否包含模式
+            if pattern_lower in key:
+                return True
+            # 检查模式是否包含关键字
+            if len(key) > 2 and key in pattern_lower:
+                return True
+        return False
+        
     def _extract_actress(self, soup) -> str:
         """
         特别提取女优信息
@@ -731,8 +771,10 @@ class MovieDetailCrawler:
         try:
             # 首先尝试找特定的女优区域
             actress_area = None
+            # 使用字段模式中的女优相关关键词
+            actress_terms = self.field_patterns.get("actress", [])
             for area in soup.select('div, section, aside'):
-                if area.text and any(term in area.text.lower() for term in ['actress', 'star', '出演者', '女优', '演员']):
+                if area.text and any(term.lower() in area.text.lower() for term in actress_terms):
                     actress_area = area
                     break
             
@@ -758,21 +800,167 @@ class MovieDetailCrawler:
         
         return ""
         
+    def initialize_field_patterns(self):
+        """
+        初始化不同语言的字段模式，用于提取页面中的信息
+        基于多语言支持的字段名称
+        
+        Returns:
+            Dict: 包含各字段的多语言模式的字典
+        """
+        field_patterns = {}
+        
+        # 系列字段模式 - 所有支持的语言
+        field_patterns["series"] = [
+            "系列",  # Traditional Chinese
+            "系列",  # Simplified Chinese
+            "Series",  # English
+            "シリーズ",  # Japanese
+            "시리즈",  # Korean
+            "Siri", "Series",  # Malay
+            "ชุด",  # Thai
+            "Serie",  # German
+            "Série",  # French
+            "Loạt",  # Vietnamese
+            "Seri",  # Indonesian
+            "Serye",  # Filipino
+            "Série"  # Portuguese
+        ]
+        
+        # 制作商字段模式 - 所有支持的语言
+        field_patterns["maker"] = [
+            "製作商",  # Traditional Chinese
+            "发行商",  # Simplified Chinese
+            "Maker",  # English
+            "メーカー",  # Japanese
+            "메이커",  # Korean
+            "Pembuat",  # Malay
+            "ผู้ผลิต",  # Thai
+            "Hersteller",  # German
+            "Fabricant",  # French
+            "nhà sản xuất",  # Vietnamese
+            "Pembuat",  # Indonesian
+            "Gumawa",  # Filipino
+            "Fabricante"  # Portuguese
+        ]
+        
+        # 标签字段模式 - 所有支持的语言
+        field_patterns["label"] = [
+            "標籤",  # Traditional Chinese
+            "标籤",  # Simplified Chinese
+            "Label",  # English
+            "レーベル",  # Japanese
+            "상표",  # Korean
+            "Label",  # Malay
+            "ฉลาก",  # Thai
+            "Etikett",  # German
+            "Étiqueter",  # French
+            "Nhãn",  # Vietnamese
+            "Label",  # Indonesian
+            "Label",  # Filipino
+            "Rótulo"  # Portuguese
+        ]
+        
+        # 类型字段模式 - 所有支持的语言
+        field_patterns["genre"] = [
+            "類型",  # Traditional Chinese
+            "类型",  # Simplified Chinese
+            "Genre",  # English
+            "ジャンル",  # Japanese
+            "장르",  # Korean
+            "Genre",  # Malay
+            "ประเภท",  # Thai
+            "Genre",  # German
+            "Le genre",  # French
+            "thể loại",  # Vietnamese
+            "Genre",  # Indonesian
+            "Genre",  # Filipino
+            "Gênero"  # Portuguese
+        ]
+        
+        # 女优字段模式 - 所有支持的语言
+        field_patterns["actress"] = [
+            "女優",  # Traditional Chinese
+            "女优",  # Simplified Chinese
+            "Actress",  # English
+            "女優",  # Japanese
+            "여배우",  # Korean
+            "Pelakon wanita",  # Malay
+            "นักแสดงหญิง",  # Thai
+            "Schauspielerin",  # German
+            "Actrice",  # French
+            "Diễn viên",  # Vietnamese
+            "Aktris",  # Indonesian
+            "Artista",  # Filipino
+            "Actriz"  # Portuguese
+        ]
+        
+        # 发行日期字段模式 - 所有支持的语言
+        field_patterns["releaseDate"] = [
+            "發行日期", "发行日期",  # Traditional & Simplified Chinese
+            "Release date",  # English
+            "配信開始日",  # Japanese
+            "출시일",  # Korean
+            "Tarikh keluaran",  # Malay
+            "วันที่วางจำหน่าย",  # Thai
+            "Veröffentlichungsdatum",  # German
+            "Date de sortie",  # French
+            "Ngày phát hành",  # Vietnamese
+            "Tanggal rilis",  # Indonesian
+            "Petsa ng Paglabas",  # Filipino
+            "Data de lançamento"  # Portuguese
+        ]
+        
+        # 男优字段模式 - 所有支持的语言
+        field_patterns["maleActor"] = [
+            "男優",  # Traditional Chinese
+            "男优",  # Simplified Chinese
+            "Actor", "Male actor",  # English
+            "男優",  # Japanese
+            "남자 배우", "남배우",  # Korean
+            "Pelakon lelaki",  # Malay
+            "นักแสดงชาย",  # Thai
+            "Schauspieler", "Darsteller",  # German
+            "Acteur",  # French
+            "Diễn viên nam",  # Vietnamese
+            "Aktor",  # Indonesian
+            "Aktor",  # Filipino
+            "Ator"  # Portuguese
+        ]
+        
+        # 导演字段模式 - 所有支持的语言
+        field_patterns["director"] = [
+            "導演", "监督",  # Traditional Chinese
+            "导演", "监督",  # Simplified Chinese
+            "Director",  # English
+            "監督", "ディレクター",  # Japanese
+            "관리자",  # Korean
+            "Pengarah",  # Malay
+            "ผู้อำนวยการ",  # Thai
+            "Direktor", "Regisseur",  # German
+            "Réalisateur",  # French
+            "Giám đốc",  # Vietnamese
+            "Direktur",  # Indonesian
+            "Direktor",  # Filipino
+            "Diretor"  # Portuguese
+        ]
+        
+        return field_patterns
+        
     def close(self):
         """关闭浏览器并释放资源"""
         if self.browser:
             self.browser.close()
             self.browser = None
             
-    def save_to_json(self, movie_info: dict, language: str):
+    def save_to_json(self, movie_info: dict):
         """将电影信息保存到JSON文件
         
         Args:
             movie_info: 电影信息字典
-            language: 语言代码
         """
         if not movie_info:
-            logger.warning(f"没有电影信息可保存，语言: {language}")
+            logger.warning(f"没有电影信息可保存")
             return
             
         # 创建数据目录
@@ -780,18 +968,18 @@ class MovieDetailCrawler:
         data_dir.mkdir(exist_ok=True)
         
         # 构建文件名
-        filename = f"{self.movie_id}_{language}.json"
+        filename = f"{self.movie_id}_{self.language}.json"
         output_file = data_dir / filename
         
         # 保存到文件
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(movie_info, f, ensure_ascii=False, indent=2)
             
-        logger.info(f"已保存 {language} 版本电影信息到 {output_file}")
+        logger.info(f"已保存 {self.language} 版本电影信息到 {output_file}")
 
 
 def main():
-    """主函数，运行爬虫"""
+    """主函数，运行爬虫 - 只处理日语版本"""
     # 配置日志
     logs_dir = Path('logs')
     logs_dir.mkdir(exist_ok=True)
@@ -810,45 +998,42 @@ def main():
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
     
-    # 设置线程池最大工作线程数
-    concurrent.futures.ThreadPoolExecutor._max_workers = 10  
-    
     # 从命令行参数获取电影ID，如果没有提供则使用默认值
     if len(sys.argv) > 1:
         movie_id = sys.argv[1]
     else:
-        movie_id = "shmo-162"  # 默认电影ID
+        movie_id = "sdjs-146"  # 默认电影ID
     
     # 创建数据和结果目录
     data_dir = Path('data')
     data_dir.mkdir(exist_ok=True)
     
     # 打印开始信息
-    logger.info(f"开始爬取电影: {movie_id}")
-    logger.info("使用优化策略：先访问基础URL绕过Cloudflare，再处理多语言版本")
+    logger.info(f"开始爬取电影: {movie_id} (日语版本)")
+    logger.info("使用优化策略：只处理日语版本")
     
     # 创建并运行爬虫
     crawler = MovieDetailCrawler(movie_id=movie_id)
     
     try:
         # 不使用无头模式，便于观察页面加载情况
-        movie_results = crawler.crawl(headless=False)
+        movie_info = crawler.crawl(headless=False)
         
         # 将结果保存到文件
-        for language, movie_info in movie_results.items():
-            crawler.save_to_json(movie_info, language)
-        
-        logger.info(f"电影 {movie_id} 爬取完成，获取了 {len(movie_results)} 种语言版本的详情")
-        
-        # 打印部分信息
-        for lang, details in movie_results.items():
-            logger.info(f"语言: {lang}")
-            logger.info(f"  标题: {details.get('title', '未知')}")
-            logger.info(f"  女优: {', '.join(details.get('actresses', ['未知']))}")
-            if details.get('tags'):
-                tag_preview = ', '.join(details.get('tags', [])[:5])
-                logger.info(f"  标签: {tag_preview}{' ...' if len(details.get('tags', [])) > 5 else ''}")
-            logger.info("")
+        crawler.save_to_json(movie_info)
+            
+        # 打印详细信息
+        logger.info(f"电影 {movie_id} 日语版本爬取完成")
+        logger.info(f"  标题: {movie_info.get('title', '未知')}")
+        logger.info(f"  女优: {', '.join(movie_info.get('actresses', ['未知']))}")
+        if movie_info.get('tags'):
+            tag_preview = ', '.join(movie_info.get('tags', [])[:5])
+            logger.info(f"  标签: {tag_preview}{' ...' if len(movie_info.get('tags', [])) > 5 else ''}")
+        logger.info(f"  制作商: {movie_info.get('studio', '未知')}")
+        logger.info(f"  发行日期: {movie_info.get('release_date', '未知')}")
+        logger.info(f"  时长: {movie_info.get('duration', '未知')}")
+        logger.info(f"  封面URL: {movie_info.get('cover_url', '未知')}")
+        logger.info(f"  数据已保存到: data/{movie_id}_ja.json")
         
     except Exception as e:
         logger.error(f"爬虫出错: {e}", exc_info=True)

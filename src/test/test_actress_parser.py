@@ -33,7 +33,7 @@ def parse_actress_json_to_sql(json_file_path: str) -> List[str]:
         language = SupportedLanguage.JAPANESE.value  # Assuming 'ja' from filename
         avatar = actress.get('avatar_url', '').replace("'", "''") if 'avatar_url' in actress else None
         debut_year = actress.get('debut_year') if 'debut_year' in actress else None
-        link = actress.get('detail_url', '').replace("'", "''") if 'detail_url' in actress else None
+        link = actress.get('profile_url', '').replace("'", "''") if 'profile_url' in actress else None
         
         # Build SQL insert command
         sql = f"INSERT INTO actresses (name, language, avatar, debut_year, link, create_time, update_time) VALUES "
