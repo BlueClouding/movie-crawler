@@ -7,17 +7,17 @@ import re
 import json
 import time
 import traceback
-import concurrent.futures
 from typing import Dict, List, Optional, Union, Any
 from pathlib import Path
 from loguru import logger
 from bs4 import BeautifulSoup
 
 # 将项目根目录添加到 Python 路径
-sys.path.append(str(Path(__file__).parent.parent))
+# sys.path.append(str(Path(__file__).parent.parent))
 
+# 因为是单个文件运行，所以直接导入
 from app.utils.drission_utils import CloudflareBypassBrowser
-
+from common.enums.enums import SupportedLanguage
 
 class MovieDetailCrawler:
     """
@@ -49,20 +49,8 @@ class MovieDetailCrawler:
         
         # 支持的所有语言列表
         self.languages = [
-            "en",      # English
-            "ja",      # Japanese
-            "",   # Traditional Chinese
-            "zh",   # Simplified Chinese
-            "ko",      # Korean
-            "ms",      # Malay
-            "th",      # Thai
-            "de",      # German
-            "fr",      # French
-            "vi",      # Vietnamese
-            "id",      # Indonesian
-            "fil",     # Filipino
-            "pt",      # Portuguese
-            "hi"       # Hindi
+            "en", "ja", "", "zh", "ko", "ms", "th", "de",
+            "fr", "vi", "id", "fil", "pt", "hi"
         ]
         
         # 初始化字段模式
@@ -75,87 +63,58 @@ class MovieDetailCrawler:
         Args:
             headless: 是否以无头模式运行
         """
-        # 创建浏览器实例 - 只使用支持的参数
         self.browser = CloudflareBypassBrowser(
             headless=headless,
             user_data_dir=str(self.user_data_dir),
-            load_images=True,  # 加载图片更容易通过Cloudflare检测
-            timeout=60  # 给Cloudflare挑战更充足的时间
+            load_images=True,
+            timeout=60
         )
-        
-        # 模拟窗口调整，保持更好的用户体验
         try:
-            # 使用JavaScript将窗口调整到正常大小
             self.browser.page.run_js("window.resizeTo(1280, 800);")
-        except:
+        except Exception:
             pass
-            
         logger.info("浏览器初始化完成")
     
     def get_new_browser_instance(self, headless: bool = True):
         """
         创建新的浏览器实例，用于并行爬取
-        
-        Args:
-            headless: 是否在无头模式下运行，默认为真以提高性能
-            
-        Returns:
-            CloudflareBypassBrowser: 新的浏览器实例，用于绕过Cloudflare验证
         """
         try:
-            from app.utils.drission_utils import CloudflareBypassBrowser
-            
-            # 每个并行实例使用单独的数据目录
-            instance_id = int(time.time())
+            instance_id = int(time.time() * 1000)
             user_data_dir = Path.home() / ".cache" / f"cloudflare_bypass_browser_parallel_{instance_id}"
             user_data_dir.mkdir(exist_ok=True, parents=True)
-            
-            # 创建并返回新的浏览器实例
             browser = CloudflareBypassBrowser(
                 headless=headless,
                 user_data_dir=str(user_data_dir),
-                load_images=False,  # 不加载图片提高效率
-                timeout=30  # 给Cloudflare挑战足够时间
+                load_images=False,
+                timeout=30
             )
-            
             return browser
         except ImportError as e:
             logger.error(f"导入CloudflareBypassBrowser出错: {e}")
-            raise e
+            raise
         except Exception as e:
             logger.error(f"创建并行浏览器实例出错: {e}")
-            raise e
-    
+            raise
+
     def get_base_page(self) -> bool:
         """
-        访问基础URL并通过Cloudflare挑战，为后续多语言爬取铺垫
-        
-        Returns:
-            bool: 返回是否成功访问页面
+        访问基础URL并通过Cloudflare挑战
         """
-        # 构建基本 URL
         base_url = f"https://missav.ai/{self.language}/{self.movie_id}"
-        
         try:
-            # 访问页面并等待通过Cloudflare检测
             logger.info("访问页面并等待自动通过Cloudflare检测...")
-            self.browser.get(base_url, timeout=10)
+            self.browser.get(base_url, timeout=20) # 增加超时时间
             
-            # 等待页面加载
-            time.sleep(1)
-            
-            # 在页面上等待一段时间，让Cloudflare检测完成
-            # CloudflareBypassBrowser会自动处理人类行为模拟
-            try:
-                self.browser.execute_script("window.scrollTo(0, document.body.scrollHeight/2)")
-            except Exception as scroll_error:
-                logger.warning(f"等待过程中出错: {scroll_error}")
+            # 等待页面加载，CloudflareBypassBrowser会自动处理大部分挑战
+            # 不需要额外的等待，get方法已经处理了等待
             
             # 检查页面是否加载成功
-            html = self.browser.get_html()
+            html = self.browser.html
             if not html or len(html) < 500 or "missav" not in html.lower():
-                logger.warning("页面可能未正确加载")
+                logger.warning("页面可能未正确加载或被Cloudflare拦截")
                 return False
+
             logger.info("页面加载成功")
             return True
             
@@ -164,198 +123,88 @@ class MovieDetailCrawler:
             logger.debug(traceback.format_exc())
             return False
     
-    def crawl(self, headless: bool = False) -> Dict[str, Dict]:
+    def crawl(self, headless: bool = False) -> Dict:
         """
-        爬取所有语言版本的电影详情，使用并行处理加速
+        爬取日语版本的电影详情
+        """
+        # FIX: Initialize base_data to prevent UnboundLocalError
+        base_data = {}
         
-        Args:
-            headless: 是否以无头模式运行浏览器
-            
-        Returns:
-            包含多语言电影详情的字典，格式为 {语言: 详情字典}
-        """
         if not self.browser:
             self.setup_browser(headless=headless)
         
-        results = {}
-        
         try:
-            # 直接访问无语言参数的基础URL
             base_url = f"https://missav.ai/{self.language}/{self.movie_id}"
-            logger.info(f"正在访问基础URL: {base_url}")
+            logger.info(f"正在访问URL: {base_url}")
             
-            # 访问页面并获取基础语言版本的数据
             if not self.get_base_page():
-                return results
+                logger.error("获取基础页面失败，无法继续。")
+                return base_data # Return empty dict
             
-            logger.info(f"继续解析当前页面")
+            logger.info("页面已成功加载！正在解析...")
+            html = self.browser.html
             
-            # 获取当前页面的HTML内容
-            html = self.browser.get_html()
+            # FIX: Correctly call parse_movie_page with 2 arguments (self, html)
+            base_data = self.parse_movie_page(html)
             
-            # 获取当前页面URL并判断语言
-            # 注意：CloudflareBypassBrowser不支持url属性
-            base_language = "ja"  # 默认使用英语
-            try:
-                
-                # 如果是DrissionPage类，尝试直接获取URL
-                if hasattr(self.browser, 'url'):
-                    base_language = self.browser.url
-                # 如果是CloudflareBypassBrowser，尝试从页面内容推断
-                else:
-                    html = self.browser.get_html()
-                    
-                # 从URL中尝试提取语言代码
-                soup = BeautifulSoup(html, 'html.parser')
-            except Exception as e:
-                base_language = "en"  # 错误时默认使用英语
-                logger.warning(f"判断页面语言出错，使用默认值英语: {e}")
-                
-            # 无论是否出现异常，都记录检测到的语言
-            logger.info(f"检测到当前页面语言: {base_language}")
-                
-            # 解析基础语言版本的数据
-            base_data = self.parse_movie_page(html, base_language)
-            if not html or len(html) < 500 or "missav" not in html.lower():
-                logger.warning("页面可能未正确加载，继续尝试...")
+            if not base_data.get("title"):
+                 logger.warning("未能解析出标题，可能页面结构已更改或加载不完整。")
             else:
-                logger.info("页面已成功加载！")
-            
-            
-            # 展示收集结果概要
-            title = base_data.get('title', '无标题')
-            actresses = ', '.join(base_data.get('actresses', [])[:3])
-            if len(base_data.get('actresses', [])) > 3:
-                actresses += '...' 
-            logger.info(f"- {base_language}: {title[:30]}{' ...' if len(title) > 30 else ''} | {actresses}")
+                title = base_data.get('title', '无标题')
+                actresses = ', '.join(base_data.get('actresses', [])[:3])
+                if len(base_data.get('actresses', [])) > 3:
+                    actresses += '...' 
+                logger.info(f"- 已解析: {title[:40]}{'...' if len(title) > 40 else ''} | {actresses}")
             
         except Exception as e:
-            logger.error(f"爬虫出错: \n{e}")
+            logger.error(f"爬虫主流程出错: {e}")
+            logger.debug(traceback.format_exc())
         finally:
-            # 清理资源，关闭浏览器
+            # Clean up resources
             try:
                 if self.browser:
-                    self.browser.close()
+                    self.browser.close()  # 使用close而不是quit
+                    logger.info("浏览器已关闭")
             except Exception as e:
                 logger.error(f"关闭浏览器出错: {e}")
         
         return base_data
     
-    def is_cloudflare_page(self, html: str) -> bool:
-        """
-        检测页面是否为Cloudflare挑战页面
-        
-        Args:
-            html: 页面HTML内容
-            
-        Returns:
-            是否为Cloudflare挑战页面
-        """
-        if not html or len(html) < 200:
-            return True
-            
-        # 快速检查常见的Cloudflare标记
-        cf_indicators = [
-            "checking your browser", 
-            "cloudflare", 
-            "security check",
-            "正在检查您的浏览器",
-            "just a moment",
-            "attention required",
-            "需要注意"
-        ]
-        
-        # 先进行字符串匹配，效率更高
-        html_lower = html.lower()
-        for indicator in cf_indicators:
-            if indicator.lower() in html_lower:
-                return True
-        
-        # 再进行更精确的BeautifulSoup检测
-        try:
-            soup = BeautifulSoup(html, 'html.parser')
-            
-            # 检查特定文本模式
-            for text_pattern in ["checking your browser", "cloudflare", "security check"]:
-                if soup.find(text=re.compile(text_pattern, re.IGNORECASE)):
-                    return True
-                    
-            # 检查特定元素
-            if soup.select("#challenge-running") or soup.select(".cf-browser-verification"):
-                return True
-                
-            # 检查页面内容 - 如果包含电影相关元素，则不是Cloudflare页面
-            if soup.select(".movie-info") or soup.select(".video-info") or \
-               soup.find('h1', class_=lambda c: c and 'title' in c.lower()):
-                return False
-                
-        except Exception as e:
-            logger.error(f"BeautifulSoup解析错误: {e}")
-            
-        # 默认返回安全的选项
-        return False
-            
     def crawl_movie_in_language(self, language: str) -> Optional[Dict]:
         """
-        爬取特定语言版本的电影详情
-        为了支持并行处理，此方法创建独立的浏览器实例
-        
-        Args:
-            language: 语言代码，例如 "en", "ja", "zh-tw"
-            
-        Returns:
-            电影详情字典或 None（爬取失败时）
+        (未使用的方法) 爬取特定语言版本的电影详情以支持并行处理
         """
-        # 创建新的浏览器实例用于并行爬取
         lang_browser = None
         try:
-            # 使用新的浏览器实例来支持并行处理
             lang_browser = self.get_new_browser_instance(headless=True)
-            
-            # 构造对应语言的URL
             url = f"https://missav.ai/{language}/{self.movie_id}"
             logger.info(f"并行爬取: 开始访问{language}语言版本: {url}")
             
-            # 实现重试逻辑
             max_retries = 2
-            retry_count = 0
-            
-            while retry_count < max_retries:
+            for i in range(max_retries):
                 try:
-                    # 访问页面
                     lang_browser.get(url, timeout=15)
-                    time.sleep(3)  # 等待页面加载
+                    lang_browser.wait.load_start(timeout=5)
+                    html = lang_browser.html
                     
-                    # 等待Cloudflare检测完成
-                    # CloudflareBypassBrowser已内置了人类行为模拟
-                    time.sleep(3)
-                    
-                    # 获取页面HTML内容
-                    html = lang_browser.get_html()
-                    
-                    # 验证页面内容
                     if not html or len(html) < 1000 or "missav" not in html.lower():
-                        retry_count += 1
-                        logger.warning(f"[{language}]页面可能未正确加载，重试({retry_count}/{max_retries})")
+                        logger.warning(f"[{language}]页面可能未正确加载，重试({i+1}/{max_retries})")
                         time.sleep(2)
                         continue
                     
-                    # 页面加载成功，解析内容
                     logger.info(f"[{language}]页面加载成功，开始解析内容")
-                    result = self.parse_movie_page(html, language)
+                    result = self.parse_movie_page(html) # Call fixed method
                     
-                    if result:
-                        # 保存结果到JSON
+                    if result and result.get("title"):
+                        # FIX: Pass correct arguments to save_to_json
                         self.save_to_json(result, language)
                         return result
                     else:
-                        retry_count += 1
-                        logger.warning(f"[{language}]页面解析失败，重试({retry_count}/{max_retries})")
+                        logger.warning(f"[{language}]页面解析失败，重试({i+1}/{max_retries})")
                         time.sleep(2)
                         
                 except Exception as e:
-                    retry_count += 1
-                    logger.error(f"[{language}]访问错误: {str(e)}")
+                    logger.error(f"[{language}]访问错误 (尝试 {i+1}/{max_retries}): {str(e)}")
                     time.sleep(2)
             
             logger.error(f"[{language}]在{max_retries}次尝试后仍未成功获取数据")
@@ -364,682 +213,494 @@ class MovieDetailCrawler:
         except Exception as e:
             logger.error(f"[{language}]并行爬取错误: {str(e)}")
             return None
-            
         finally:
-            # 确保浏览器实例被正确关闭以释放资源
-            if lang_browser is not None:
+            if lang_browser:
                 try:
-                    lang_browser.quit()
+                    lang_browser.close()  # 使用close而不是quit
                     logger.debug(f"[{language}]已关闭并行爬取浏览器实例")
-                except:
+                except Exception:
                     pass
-        
-    def parse_movie_page(self, browser, language="en") -> Dict:
-        """
-        分析电影页面
-        
-        Args:
-            browser: 浏览器实例或HTML字符串
-            language: 当前语言
-            
-        Returns:
-            Dict: 电影详情字典
-        """
-        # 构造页面URL
-        if language == "en":
-            url = f"https://missav.ai/{self.movie_id}"
-        else:
-            url = f"https://missav.ai/{language}/{self.movie_id}"
-            
-        # 初始化结果字典
-        result = {
-            "id": self.movie_id,
-            "language": language,
-            "url": url,  # 使用预构建的URL而不是从浏览器获取
-            "crawled_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "title": "",
-            "cover_url": "",
-            "release_date": "",
-            "duration": "",
-            "studio": "",
-            "tags": [],
-            "actresses": [],
-            "description": ""
+    
+    def initialize_field_patterns(self) -> Dict[str, List[str]]:
+        return {
+            "releaseDate": ["配信開始日"], "studio": ["メーカー"],
+            "series": ["シリーズ"], "label": ["レーベル"],
+            "genre": ["ジャンル"], "actress": ["女優"], "director": ["監督"],
         }
-        
+
+    def _extract_info_by_label(self, soup: BeautifulSoup, label: str) -> List[str]:
+        values = []
         try:
-            # 获取HTML内容并初始BeautifulSoup
-            if isinstance(browser, str):
-                html = browser
-            else:
-                try:
-                    html = browser.get_html()
-                except Exception as e:
-                    logger.error(f"获取HTML时出错: {e}")
-                    return result
-                    
+            label_span = soup.find('span', string=lambda t: t and label in t)
+            if label_span:
+                container = label_span.parent
+                links = container.select('a')
+                if links:
+                    for link in links:
+                        if link.text.strip():
+                            values.append(link.text.strip())
+        except Exception as e:
+            logger.warning(f"提取标签 '{label}' 信息时出错: {e}")
+        return values
+        
+    def _extract_single_field_by_label(self, soup: BeautifulSoup, label: str) -> str:
+        links = self._extract_info_by_label(soup, label)
+        return links[0] if links else ""
+
+    def parse_movie_page(self, html: str) -> Dict:
+        """
+        分析电影页面HTML以提取详细信息 (日语专用)
+        """
+        result = {
+            "id": self.movie_id, "url": f"https://missav.ai/ja/{self.movie_id}",
+            "crawled_at": time.strftime("%Y-%m-%d %H:%M:%S"), "title": "",
+            "cover_url": "", "release_date": "", "duration_seconds": None,
+            "studio": "", "label": "", "series": "", "director": "",
+            "tags": [], "actresses": [], "description": "", "magnets": []
+        }
+        try:
+            # 检查HTML内容的有效性
+            if not html or len(html) < 1000 or ("MissAV | オンラインで無料" in html and self.movie_id not in html):
+                logger.error(f"HTML内容可能无效，长度: {len(html) if html else 0}，内容可能是网站首页")
+                return result
+                
             soup = BeautifulSoup(html, "html.parser")
             
-            # 首先从meta标签中提取信息
-            try:
-                # 提取标题 - 从meta标签
-                meta_title = soup.select_one('meta[property="og:title"]')
-                if meta_title and meta_title.get('content'):
-                    result["title"] = meta_title.get('content').strip()
-                
-                # 提取封面图片URL - 从meta标签
-                meta_image = soup.select_one('meta[property="og:image"]')
-                if meta_image and meta_image.get('content'):
-                    result["cover_url"] = meta_image.get('content')
-                
-                # 提取描述 - 从meta标签
-                meta_desc = soup.select_one('meta[property="og:description"]')
-                if meta_desc and meta_desc.get('content'):
-                    result["description"] = meta_desc.get('content')
-                    # 限制描述长度
-                    if len(result["description"]) > 500:
-                        result["description"] = result["description"][:497] + "..."
-                
-                # 尝试从meta标签提取发布日期
-                meta_date = soup.select_one('meta[property="og:article:published_time"]')
-                if meta_date and meta_date.get('content'):
-                    result["website_date"] = meta_date.get('content')
-                    # 如果没有其他发布日期，使用网站日期
-                    if not result["release_date"]:
-                        result["release_date"] = meta_date.get('content')
-            except Exception as e:
-                logger.warning(f"从meta标签提取信息失败: {e}")
+            # 尝试提取页面标题
+            # 1. 先从h1标签获取
+            h1_title = soup.select_one('h1')
+            if h1_title and len(h1_title.text) > 3 and self.movie_id.upper() in h1_title.text.upper():
+                result["title"] = h1_title.text.strip()
+                logger.info(f"从h1标签获取到标题: {result['title']}")
             
-            # 如果meta标签中没有标题，尝试从其他元素中提取
-            if not result["title"]:
-                # 从页面标题中提取DVD ID
+            # 2. 尝试从meta标签获取
+            if not result["title"] or "MissAV" in result["title"]:
+                og_title = soup.select_one('meta[property="og:title"]')
+                if og_title:
+                    title_text = og_title.get('content', '').strip()
+                    if self.movie_id.upper() in title_text.upper():
+                        result["title"] = title_text
+                        logger.info(f"从og:title获取到标题: {result['title']}")
+            
+            # 3. 如果还是没有获取到，尝试从title标签获取
+            if not result["title"] or "MissAV" in result["title"]:
                 title_tag = soup.select_one('title')
-                if title_tag and title_tag.text:
-                    title_parts = title_tag.text.split()
-                    if title_parts:
-                        # 使用标题的第一部分作为标题
-                        result["title"] = title_parts[0]
-                
-                # 如果还是没有标题，使用其他选择器尝试
-                if not result["title"]:
-                    title_selectors = ['h1', '.videoTitle', '.film-title', '.title', '[class*="title"]', 'article h2']
-                    for selector in title_selectors:
-                        try:
-                            title_elem = soup.select_one(selector)
-                            if title_elem and title_elem.text.strip():
-                                result["title"] = title_elem.text.strip()
-                                break
-                        except Exception:
-                            continue
-                
-                # 如果依然没有找到标题，使用电影ID
-                if not result["title"]:
-                    result["title"] = self.movie_id
+                if title_tag and self.movie_id.upper() in title_tag.text.upper():
+                    result["title"] = title_tag.text.strip()
+                    logger.info(f"从title标签获取到标题: {result['title']}")
+
+            # 获取封面图片
+            # 1. 先尝试通过特定的图片标签获取
+            cover_img = soup.select_one(f'img[alt*="{self.movie_id}"]')
+            if not cover_img:
+                cover_img = soup.select_one('.aspect-video > img') or soup.select_one('.cover-image')
             
-            # 如果meta标签中没有封面URL，尝试从其他元素中提取
-            if not result["cover_url"]:
-                cover_selectors = [
-                    '.poster img', '.cover img', '.thumbnail img', 
-                    '[class*="poster"] img', '[class*="cover"] img',
-                    '.movie-cover img', 'video-player img', '.preview img'
-                ]
-                for selector in cover_selectors:
-                    try:
-                        cover_elem = soup.select_one(selector)
-                        if cover_elem and cover_elem.has_attr('src'):
-                            result["cover_url"] = cover_elem['src']
-                            break
-                    except Exception:
-                        continue
-                        
-            # 如果meta标签中没有发行日期，尝试从HTML中提取
-            if not result["release_date"]:
-                date_selectors = [
-                    '[class*="date"]', 'time', '.release-date', 
-                    '.video-meta time', '.info-item:contains("发行")', 
-                    '.meta-item:contains("Date")', '.meta-item:contains("日期")'
-                ]
-                for selector in date_selectors:
-                    try:
-                        date_elem = soup.select_one(selector)
-                        if date_elem and date_elem.text.strip():
-                            result["release_date"] = date_elem.text.strip()
-                            break
-                    except Exception:
-                        continue
-            
-            # 先尝试提取所有的元数据
-            metadata = self._extract_meta_data(soup)
-            
-            # 使用提取的元数据填充结果
-            if metadata.get("duration"):
-                result["duration"] = metadata.get("duration")
-            if metadata.get("maker"):
-                result["studio"] = metadata.get("maker")
-            if metadata.get("actor") and not result["actresses"]:
-                # 如果元数据有演员信息但result中还没有，就使用它
-                actors = metadata.get("actor").split(',') if ',' in metadata.get("actor") else [metadata.get("actor")]  
-                result["actresses"] = [a.strip() for a in actors if a.strip()]
-            
-            # 如果元数据中没有时长信息，尝试从页面中提取
-            if not result["duration"]:
-                duration_selectors = [
-                    '[class*="duration"]', '[class*="time"]', '.video-time',
-                    '.meta-item:contains("Duration")', '.meta-item:contains("時長")',
-                    '.meta-item:contains("长度")', '.length'
-                ]
-                for selector in duration_selectors:
-                    try:
-                        duration_elem = soup.select_one(selector)
-                        if duration_elem and duration_elem.text.strip():
-                            result["duration"] = duration_elem.text.strip()
-                            break
-                    except Exception:
-                        continue
-            
-            # 如果元数据中没有制作商信息，尝试从页面中提取
-            if not result["studio"]:
-                studio_selectors = [
-                    '[class*="studio"]', '[class*="maker"]', '.producer', 
-                    '.meta-item:contains("Studio")', '.meta-item:contains("制作")'
-                ]
-                for selector in studio_selectors:
-                    try:
-                        studio_elem = soup.select_one(selector)
-                        if studio_elem and studio_elem.text.strip():
-                            result["studio"] = studio_elem.text.strip()
-                            break
-                    except Exception:
-                        continue
-            
-            # 提取标签 - 先使用元数据中的类型
-            if metadata.get("genres") and isinstance(metadata.get("genres"), list):
-                result["tags"] = metadata.get("genres")
+            if cover_img and 'src' in cover_img.attrs:
+                result["cover_url"] = cover_img['src']
+                logger.info(f"从img标签获取到封面: {result['cover_url']}")
             else:
-                # 如果元数据中没有类型，尝试从页面中提取
-                tag_selectors = [
-                    '[class*="tag"]', '[class*="genre"] a', '.tags a', 
-                    '.categories a', '.genres a', '[class*="category"] a'
-                ]
-                found_tags = []
-                for selector in tag_selectors:
-                    try:
-                        tag_elems = soup.select(selector)
-                        if tag_elems:
-                            for tag in tag_elems:
-                                if tag.text.strip() and tag.text.strip() not in found_tags:
-                                    result["tags"].append(tag.text.strip())
-                                    found_tags.append(tag.text.strip())
-                    except Exception:
-                        continue
-            
-            # 如果元数据中没有演员信息，尝试从页面中提取
-            if not result["actresses"]:
-                # 特别尝试提取女演员
-                extracted_actress = self._extract_actress(soup)
-                if extracted_actress:
-                    # 如果使用特殊方法提取到了女演员，优先使用
-                    actresses = extracted_actress.split(',') if ',' in extracted_actress else [extracted_actress]  
-                    result["actresses"] = [a.strip() for a in actresses if a.strip()]
-                else:
-                    # 使用字段模式中的女优关键词构建选择器
-                    actress_terms = self.field_patterns.get("actress", [])
-                    actress_selectors = []
-                    
-                    # 基础选择器
-                    base_selectors = [
-                        '[class*="actress"] a', '[class*="star"] a', 
-                        '.cast a', '.performer a', '.actor a',
-                        '[class*="cast-item"] a', '.video-performer a'
-                    ]
-                    
-                    # 添加基础选择器
-                    actress_selectors.extend(base_selectors)
-                    
-                    # 为每个女优关键词添加特定选择器
-                    for term in actress_terms:
-                        actress_selectors.append(f'[class*="{term.lower()}"] a')
-                        actress_selectors.append(f'[data-label="{term}"] a')
-                        actress_selectors.append(f'[data-label*="{term}"] a')
-                        actress_selectors.append(f'.{term.lower()} a')
-                        
-                    # 日语特定选择器
-                    if language == "ja":
-                        actress_selectors.extend([
-                            '.av-actress a', '.av-performer a', '.jav-actress a',
-                            '[class*="女優"] a', '[class*="出演者"] a', '[class*="出演"] a',
-                            '[data-label="女優"] a', '[data-label="出演者"] a'
-                        ])
-                    
-                    found_actresses = []
-                    for selector in actress_selectors:
+                # 2. 尝试从meta标签获取
+                og_image = soup.select_one('meta[property="og:image"]')
+                if og_image:
+                    result["cover_url"] = og_image.get('content')
+                    logger.info(f"从og:image获取到封面: {result['cover_url']}")
+
+            # 获取描述信息
+            og_desc = soup.select_one('meta[property="og:description"]')
+            if og_desc and len(og_desc.get('content', '')) > 10:
+                result["description"] = og_desc.get('content')
+                logger.info(f"获取到描述信息，长度: {len(result['description'])}")
+        
+            # 获取视频时长
+            og_duration = soup.select_one('meta[property="og:video:duration"]')
+            if og_duration and og_duration.get('content', '').isdigit():
+                result["duration_seconds"] = int(og_duration.get('content'))
+                logger.info(f"获取到视频时长: {result['duration_seconds']}秒")
+            else:
+                # 尝试从页面元素获取
+                for duration_elem in soup.select('span:-soup-contains("長度") + span'):
+                    duration_text = duration_elem.text.strip()
+                    # 尝试解析例如 '120分钟' 这样的格式
+                    if '分' in duration_text:
                         try:
-                            actress_elems = soup.select(selector)
-                            for actress in actress_elems:
-                                if actress.text.strip() and not any(x in actress.text.lower() for x in ['tag', 'genre', 'studio', 'category']):
-                                    if actress.text.strip() not in found_actresses:
-                                        result["actresses"].append(actress.text.strip())
-                                        found_actresses.append(actress.text.strip())
-                        except Exception:
-                            continue
-            
-            # 如果元数据中没有描述信息，尝试从页面中提取
-            if not result["description"]:
-                desc_selectors = [
-                    '[class*="desc"]', '[class*="summary"]', 
-                    '[class*="description"]', '.video-info', 
-                    '.movie-description', '.synopsis', '.plot'
-                ]
-                for selector in desc_selectors:
-                    try:
-                        desc_elem = soup.select_one(selector)
-                        if desc_elem and desc_elem.text.strip():
-                            result["description"] = desc_elem.text.strip()
-                            # 限制描述长度
-                            if len(result["description"]) > 500:
-                                result["description"] = result["description"][:497] + "..."
+                            minutes = int(re.search(r'(\d+)分', duration_text).group(1))
+                            result["duration_seconds"] = minutes * 60
+                            logger.info(f"从页面元素获取到视频时长: {result['duration_seconds']}秒")
                             break
-                    except Exception:
-                        continue
+                        except (ValueError, AttributeError):
+                            pass
+
+            # 获取发布日期
+            og_release_date = soup.select_one('meta[property="og:video:release_date"]')
+            if og_release_date and og_release_date.get('content'):
+                result["release_date"] = og_release_date.get('content')
+                logger.info(f"从meta标签获取到发布日期: {result['release_date']}")
+            else:
+                # 尝试从页面元素获取
+                for date_elem in soup.select('span:-soup-contains("発売日") + span, span:-soup-contains("発売") + span'):
+                    date_text = date_elem.text.strip()
+                    if date_text and (re.match(r'\d{4}-\d{2}-\d{2}', date_text) or re.match(r'\d{4}/\d{2}/\d{2}', date_text)):
+                        result["release_date"] = date_text
+                        logger.info(f"从页面元素获取到发布日期: {result['release_date']}")
+                        break
+
+            # 解析标签
+            # 1. 尝试通过Alpine.js标记的div
+            tags_div = soup.select_one('div[x-show="currentTab === \'tags\'"]')
+            if tags_div:
+                tags = [tag.text.strip() for tag in tags_div.select('a.tag')]
+                if tags:
+                    result["tags"] = tags
+                    logger.info(f"从x-show标签获取到{len(tags)}个标签")
             
-            logger.info(f"成功解析电影信息: {result['title']}")
+            # 2. 尝试使用field_patterns获取
+            if not result["tags"]:
+                tags = self._extract_info_by_label(soup, self.field_patterns["genre"][0])
+                if tags:
+                    result["tags"] = tags
+                    logger.info(f"从field_patterns获取到{len(tags)}个标签")
+            
+            # 3. 尝试从meta关键词获取
+            if not result["tags"]:
+                meta_keywords = soup.select_one('meta[name="keywords"]')
+                if meta_keywords and meta_keywords.get('content'):
+                    keywords = meta_keywords.get('content').split(',')
+                    result["tags"] = [kw.strip() for kw in keywords if kw.strip() and kw.strip() != "無料AV"]
+                    logger.info(f"从meta关键词获取到{len(result['tags'])}个标签")
+            
+            # 解析女优
+            # 1. 尝试通过Alpine.js标记的div
+            actresses_div = soup.select_one('div[x-show="currentTab === \'actresses\'"]')
+            if actresses_div:
+                actresses = [actress.text.strip() for actress in actresses_div.select('a.actress')]
+                if actresses:
+                    result["actresses"] = actresses
+                    logger.info(f"从x-show标签获取到{len(actresses)}个女优")
+            
+            # 2. 尝试使用field_patterns获取
+            if not result["actresses"]:
+                actresses = self._extract_info_by_label(soup, self.field_patterns["actress"][0])
+                if actresses:
+                    result["actresses"] = actresses
+                    logger.info(f"从field_patterns获取到{len(actresses)}个女优")
+            
+            # 解析磁力链接
+            magnets_div = soup.select_one('div[x-show="currentTab === \'magnets\'"]')
+            if magnets_div:
+                magnet_rows = magnets_div.select('tbody tr')
+                magnets = []
+                for row in magnet_rows:
+                    magnet_link = row.select_one('a[href^="magnet:"]')
+                    if magnet_link:
+                        magnet_url = magnet_link.get('href', '')
+                        magnet_title = magnet_link.text.strip()
+                    
+                        # 获取大小和日期
+                        size_cell = row.select('td')[1] if len(row.select('td')) > 1 else None
+                        date_cell = row.select('td')[2] if len(row.select('td')) > 2 else None
+                    
+                        magnet_info = {
+                            "url": magnet_url,
+                            "title": magnet_title,
+                            "size": size_cell.text.strip() if size_cell else "",
+                            "date": date_cell.text.strip() if date_cell else ""
+                        }
+                        magnets.append(magnet_info)
+            
+                result["magnets"] = magnets
+                logger.info(f"获取到{len(magnets)}个磁力链接")
+        
+            # 获取工作室、厂商、系列等信息
+            studio = self._extract_single_field_by_label(soup, self.field_patterns["studio"][0])
+            if studio:
+                result["studio"] = studio
+                logger.info(f"获取到工作室: {result['studio']}")
+            
+            label = self._extract_single_field_by_label(soup, self.field_patterns["label"][0])
+            if label:
+                result["label"] = label
+                logger.info(f"获取到厂商: {result['label']}")
+            
+            series = self._extract_single_field_by_label(soup, self.field_patterns["series"][0])
+            if series:
+                result["series"] = series
+                logger.info(f"获取到系列: {result['series']}")
+            
+            director = self._extract_single_field_by_label(soup, self.field_patterns["director"][0])
+            if director:
+                result["director"] = director
+                logger.info(f"获取到导演: {result['director']}")
             
         except Exception as e:
             logger.error(f"解析页面时出错: {e}")
             logger.debug(traceback.format_exc())
-        
         return result
-    
-    def _extract_meta_data(self, soup) -> Dict[str, str]:
-        """
-        从页面提取结构化元数据
-        
-        Args:
-            soup: BeautifulSoup解析后的页面
-            
-        Returns:
-            Dict: 包含各类元数据的字典
-        """
-        meta_data = {}
-        
-        try:
-            # 寻找包含属性信息的容器
-            info_containers = soup.select('.info-item, [class*="meta"], [class*="info"]')
-            
-            for container in info_containers:
-                text = container.text.strip()
-                # 尝试查找格式为"属性: 值"的项目
-                if ':' in text or '：' in text:
-                    parts = text.split(':', 1) if ':' in text else text.split('：', 1)
-                    if len(parts) == 2:
-                        key = parts[0].strip().lower()
-                        value = parts[1].strip()
-                        
-                        # 使用字段模式进行匹配
-                        # 发行日期
-                        if self._match_field_pattern(key, self.field_patterns.get("releaseDate", [])):
-                            meta_data['release_date'] = value
-                        # 制作商/发行商
-                        elif self._match_field_pattern(key, self.field_patterns.get("maker", [])):
-                            meta_data['maker'] = value
-                        # 系列
-                        elif self._match_field_pattern(key, self.field_patterns.get("series", [])):
-                            meta_data['series'] = value
-                        # 演员/女优
-                        elif self._match_field_pattern(key, self.field_patterns.get("actress", [])) or \
-                             self._match_field_pattern(key, self.field_patterns.get("maleActor", [])):
-                            meta_data['actor'] = value
-                        # 导演
-                        elif self._match_field_pattern(key, self.field_patterns.get("director", [])):
-                            meta_data['director'] = value
-                        # 标签/类型
-                        elif self._match_field_pattern(key, self.field_patterns.get("genre", [])) or \
-                             self._match_field_pattern(key, self.field_patterns.get("label", [])):
-                            tags = [tag.strip() for tag in value.split(',')] if ',' in value else [value.strip()]
-                            meta_data['genres'] = tags
-                        # 时长 - 使用特定关键词匹配
-                        elif any(x in key for x in ['时长', 'duration', '長さ', '长度', 'length', '時間']):
-                            meta_data['duration'] = value
-        
-            # 尝试提取单独的元数据标签
-            for meta_tag in soup.select('meta'):
-                if meta_tag.has_attr('name') and meta_tag.has_attr('content'):
-                    name = meta_tag['name'].lower()
-                    content = meta_tag['content']
-                    
-                    if 'keywords' in name and not meta_data.get('genres'):
-                        keywords = [kw.strip() for kw in content.split(',')] if ',' in content else [content.strip()]
-                        meta_data['genres'] = keywords
-                    elif 'description' in name and not meta_data.get('description'):
-                        meta_data['description'] = content
-                        
-            # 尝试使用特定选择器查找元数据
-            # 制作商
-            if not meta_data.get('maker'):
-                for pattern in self.field_patterns.get("maker", []):
-                    maker_selector = f'[class*="maker"]:contains("{pattern}"), [class*="studio"]:contains("{pattern}")'                    
-                    maker_elem = soup.select_one(maker_selector)
-                    if maker_elem and ':' in maker_elem.text:
-                        meta_data['maker'] = maker_elem.text.split(':', 1)[1].strip()
-                        break
-            
-            # 女优
-            if not meta_data.get('actor'):
-                for pattern in self.field_patterns.get("actress", []):
-                    actress_selector = f'[class*="actress"]:contains("{pattern}"), [class*="cast"]:contains("{pattern}")'                    
-                    actress_elem = soup.select_one(actress_selector)
-                    if actress_elem and ':' in actress_elem.text:
-                        meta_data['actor'] = actress_elem.text.split(':', 1)[1].strip()
-                        break
-        except Exception as e:
-            logger.warning(f"提取元数据时出错: {e}")
-        
-        return meta_data
-    
-    def _match_field_pattern(self, key: str, patterns: List[str]) -> bool:
-        """
-        检查关键字是否匹配任何字段模式
-        
-        Args:
-            key: 要检查的关键字
-            patterns: 要匹配的模式列表
-            
-        Returns:
-            bool: 如果关键字匹配任何模式，则返回 True
-        """
-        key = key.lower()
-        for pattern in patterns:
-            pattern_lower = pattern.lower()
-            # 检查关键字是否包含模式
-            if pattern_lower in key:
-                return True
-            # 检查模式是否包含关键字
-            if len(key) > 2 and key in pattern_lower:
-                return True
-        return False
-        
-    def _extract_actress(self, soup) -> str:
-        """
-        特别提取女优信息
-        
-        Args:
-            soup: BeautifulSoup解析后的页面
-            
-        Returns:
-            str: 女优名字，如果有多个则用逗号分隔
-        """
-        try:
-            # 首先尝试找特定的女优区域
-            actress_area = None
-            # 使用字段模式中的女优相关关键词
-            actress_terms = self.field_patterns.get("actress", [])
-            for area in soup.select('div, section, aside'):
-                if area.text and any(term.lower() in area.text.lower() for term in actress_terms):
-                    actress_area = area
-                    break
-            
-            if actress_area:
-                # 在女优区域中寻找链接或标签
-                actress_links = actress_area.select('a')
-                if actress_links:
-                    actresses = [link.text.strip() for link in actress_links 
-                               if link.text.strip() and not any(x in link.text.lower() for x in ['tag', 'genre', 'category'])]                    
-                    if actresses:
-                        return ', '.join(actresses)
-            
-            # 如果没找到专门的区域，查找可能包含女优信息的标题
-            for heading in soup.select('h1, h2, h3, h4, h5, h6'):
-                text = heading.text.strip()
-                if any(term in text.lower() for term in ['starring', 'featuring', 'stars', 'actress']):
-                    # 假设标题后面的文本包含女优名字
-                    next_elem = heading.find_next_sibling()
-                    if next_elem and next_elem.text.strip():
-                        return next_elem.text.strip()
-        except Exception as e:
-            logger.warning(f"提取女优信息时出错: {e}")
-        
-        return ""
-        
-    def initialize_field_patterns(self):
-        """
-        初始化不同语言的字段模式，用于提取页面中的信息
-        基于多语言支持的字段名称
-        
-        Returns:
-            Dict: 包含各字段的多语言模式的字典
-        """
-        field_patterns = {}
-        
-        # 系列字段模式 - 所有支持的语言
-        field_patterns["series"] = [
-            "系列",  # Traditional Chinese
-            "系列",  # Simplified Chinese
-            "Series",  # English
-            "シリーズ",  # Japanese
-            "시리즈",  # Korean
-            "Siri", "Series",  # Malay
-            "ชุด",  # Thai
-            "Serie",  # German
-            "Série",  # French
-            "Loạt",  # Vietnamese
-            "Seri",  # Indonesian
-            "Serye",  # Filipino
-            "Série"  # Portuguese
-        ]
-        
-        # 制作商字段模式 - 所有支持的语言
-        field_patterns["maker"] = [
-            "製作商",  # Traditional Chinese
-            "发行商",  # Simplified Chinese
-            "Maker",  # English
-            "メーカー",  # Japanese
-            "메이커",  # Korean
-            "Pembuat",  # Malay
-            "ผู้ผลิต",  # Thai
-            "Hersteller",  # German
-            "Fabricant",  # French
-            "nhà sản xuất",  # Vietnamese
-            "Pembuat",  # Indonesian
-            "Gumawa",  # Filipino
-            "Fabricante"  # Portuguese
-        ]
-        
-        # 标签字段模式 - 所有支持的语言
-        field_patterns["label"] = [
-            "標籤",  # Traditional Chinese
-            "标籤",  # Simplified Chinese
-            "Label",  # English
-            "レーベル",  # Japanese
-            "상표",  # Korean
-            "Label",  # Malay
-            "ฉลาก",  # Thai
-            "Etikett",  # German
-            "Étiqueter",  # French
-            "Nhãn",  # Vietnamese
-            "Label",  # Indonesian
-            "Label",  # Filipino
-            "Rótulo"  # Portuguese
-        ]
-        
-        # 类型字段模式 - 所有支持的语言
-        field_patterns["genre"] = [
-            "類型",  # Traditional Chinese
-            "类型",  # Simplified Chinese
-            "Genre",  # English
-            "ジャンル",  # Japanese
-            "장르",  # Korean
-            "Genre",  # Malay
-            "ประเภท",  # Thai
-            "Genre",  # German
-            "Le genre",  # French
-            "thể loại",  # Vietnamese
-            "Genre",  # Indonesian
-            "Genre",  # Filipino
-            "Gênero"  # Portuguese
-        ]
-        
-        # 女优字段模式 - 所有支持的语言
-        field_patterns["actress"] = [
-            "女優",  # Traditional Chinese
-            "女优",  # Simplified Chinese
-            "Actress",  # English
-            "女優",  # Japanese
-            "여배우",  # Korean
-            "Pelakon wanita",  # Malay
-            "นักแสดงหญิง",  # Thai
-            "Schauspielerin",  # German
-            "Actrice",  # French
-            "Diễn viên",  # Vietnamese
-            "Aktris",  # Indonesian
-            "Artista",  # Filipino
-            "Actriz"  # Portuguese
-        ]
-        
-        # 发行日期字段模式 - 所有支持的语言
-        field_patterns["releaseDate"] = [
-            "發行日期", "发行日期",  # Traditional & Simplified Chinese
-            "Release date",  # English
-            "配信開始日",  # Japanese
-            "출시일",  # Korean
-            "Tarikh keluaran",  # Malay
-            "วันที่วางจำหน่าย",  # Thai
-            "Veröffentlichungsdatum",  # German
-            "Date de sortie",  # French
-            "Ngày phát hành",  # Vietnamese
-            "Tanggal rilis",  # Indonesian
-            "Petsa ng Paglabas",  # Filipino
-            "Data de lançamento"  # Portuguese
-        ]
-        
-        # 男优字段模式 - 所有支持的语言
-        field_patterns["maleActor"] = [
-            "男優",  # Traditional Chinese
-            "男优",  # Simplified Chinese
-            "Actor", "Male actor",  # English
-            "男優",  # Japanese
-            "남자 배우", "남배우",  # Korean
-            "Pelakon lelaki",  # Malay
-            "นักแสดงชาย",  # Thai
-            "Schauspieler", "Darsteller",  # German
-            "Acteur",  # French
-            "Diễn viên nam",  # Vietnamese
-            "Aktor",  # Indonesian
-            "Aktor",  # Filipino
-            "Ator"  # Portuguese
-        ]
-        
-        # 导演字段模式 - 所有支持的语言
-        field_patterns["director"] = [
-            "導演", "监督",  # Traditional Chinese
-            "导演", "监督",  # Simplified Chinese
-            "Director",  # English
-            "監督", "ディレクター",  # Japanese
-            "관리자",  # Korean
-            "Pengarah",  # Malay
-            "ผู้อำนวยการ",  # Thai
-            "Direktor", "Regisseur",  # German
-            "Réalisateur",  # French
-            "Giám đốc",  # Vietnamese
-            "Direktur",  # Indonesian
-            "Direktor",  # Filipino
-            "Diretor"  # Portuguese
-        ]
-        
-        return field_patterns
-        
     def close(self):
-        """关闭浏览器并释放资源"""
         if self.browser:
-            self.browser.close()
+            self.browser.close()  # 使用close而不是quit
             self.browser = None
             
-    def save_to_json(self, movie_info: dict):
-        """将电影信息保存到JSON文件
-        
-        Args:
-            movie_info: 电影信息字典
+    def save_to_json(self, movie_info: dict, language: str):
         """
-        if not movie_info:
-            logger.warning(f"没有电影信息可保存")
+        FIX: Adjusted method to correctly handle language parameter for filename.
+        """
+        if not movie_info or not movie_info.get("id"):
+            logger.warning("没有有效的电影信息可保存。")
             return
             
-        # 创建数据目录
         data_dir = Path('data')
         data_dir.mkdir(exist_ok=True)
-        
-        # 构建文件名
-        filename = f"{self.movie_id}_{self.language}.json"
+        filename = f"{self.movie_id}_{language}.json"
         output_file = data_dir / filename
         
-        # 保存到文件
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(movie_info, f, ensure_ascii=False, indent=2)
-            
-        logger.info(f"已保存 {self.language} 版本电影信息到 {output_file}")
+        logger.info(f"已保存 {language} 版本电影信息到 {output_file}")
 
+def batch_crawl_movies(movie_ids, headless=False, max_retries=2, delay_between_movies=0.5):
+    """
+    批量爬取多个电影信息
+    
+    Args:
+        movie_ids: 电影ID列表
+        headless: 是否使用无头模式
+        max_retries: 最大重试次数
+        delay_between_movies: 电影之间的延迟时间(秒)
+    
+    Returns:
+        爬取结果字典 {movie_id: movie_info}
+    """
+    results = {}
+    browser = None
+    
+    try:
+        # 创建一个共享的浏览器实例，提高性能
+        browser = CloudflareBypassBrowser(
+            headless=headless,
+            user_data_dir=str(Path.home() / ".cache" / "cloudflare_bypass_browser"),
+            load_images=False,  # 不加载图片以提高速度
+            timeout=30
+        )
+        
+        # 先访问一次基础页面，通过Cloudflare挑战
+        logger.info("初始化浏览器并通过Cloudflare挑战...")
+        browser.get("https://missav.ai/", timeout=30)
+        time.sleep(2)  # 等待Cloudflare挑战完成
+        
+        # 优化浏览器性能的JS代码
+        performance_js = """
+        // 阻止不必要的资源加载
+        window.stopUnnecessaryLoading = function() {
+            // 阻止视频、音频、大图片等资源
+            window._origFetch = window.fetch;
+            window.fetch = function(url, options) {
+                if (typeof url === 'string') {
+                    if (url.includes('.m3u8') || url.includes('.mp4') || 
+                        url.includes('.webm') || url.includes('.mp3') || 
+                        url.includes('videodelivery') || url.includes('stream')) {
+                        return new Promise((resolve) => {
+                            resolve(new Response('', {status: 200}));
+                        });
+                    }
+                }
+                return window._origFetch(url, options);
+            };
+            
+            // 清理内存
+            if (window.gc) window.gc();
+            
+            // 返回成功
+            return true;
+        };
+        """
+        
+        # 执行性能优化JS
+        browser.page.run_js(performance_js)
+        
+        for i, movie_id in enumerate(movie_ids):
+            logger.info(f"[{i+1}/{len(movie_ids)}] 开始爬取电影: {movie_id} (日语版本)")
+            
+            # 创建爬虫实例但复用已有浏览器
+            crawler = MovieDetailCrawler(movie_id=movie_id)
+            crawler.browser = browser  # 使用共享浏览器实例
+            
+            # 添加重试逻辑
+            for attempt in range(max_retries):
+                try:
+                    # 直接访问电影页面
+                    url = f"https://missav.ai/ja/{movie_id}"
+                    logger.info(f"正在访问URL: {url}")
+                    
+                    # 使用优化的页面加载方式
+                    browser.get(url, timeout=30)
+                    
+                    # 等待Cloudflare挑战解决
+                    logger.info("等待页面完全加载...")
+                    time.sleep(5)  # 增加基本等待时间
+                    
+                    # 验证当前网址确实是电影页面而不是首页
+                    current_url = browser.page.url
+                    logger.info(f"当前页面URL: {current_url}")
+                    if movie_id not in current_url:
+                        logger.warning(f"访问电影页面失败，可能被重定向到首页，重试开启新标签页直接访问")
+                        # 尝试开启新标签页直接访问
+                        browser.page.new_tab(url, new_window=False)
+                        time.sleep(5)  # 等待新标签页加载
+                    
+                    # 检查页面是否包含电影标题的关键标记
+                    check_js = """
+                    function checkPageLoaded() {
+                        // 检查电影标题元素
+                        let title = document.querySelector('h1');
+                        if (title && title.textContent.length > 5 && 
+                            !title.textContent.includes('MissAV') && 
+                            !title.textContent.includes('オンラインで無料')) {
+                            return true;
+                        }
+                        
+                        // 检查影片信息区域
+                        let infoSection = document.querySelector('.grid-cols-2') || 
+                                          document.querySelector('.movie-info-panel');
+                        if (infoSection) {
+                            return true;
+                        }
+                        
+                        // 检查是否还在Cloudflare页面
+                        if (document.querySelector('#challenge-running')) {
+                            return 'cloudflare';
+                        }
+                        
+                        return false;
+                    }
+                    return checkPageLoaded();
+                    """
+                    
+                    # 重试检查页面是否完全加载
+                    max_wait_time = 20  # 最多等待20秒
+                    start_time = time.time()
+                    page_ready = False
+                    
+                    while time.time() - start_time < max_wait_time:
+                        check_result = browser.page.run_js(check_js)
+                        if check_result == True:
+                            page_ready = True
+                            logger.info("页面已完全加载，检测到电影详情内容")
+                            break
+                        elif check_result == 'cloudflare':
+                            logger.info("仍在解决Cloudflare挑战，继续等待...")
+                        else:
+                            logger.info("页面内容尚未准备好，继续等待...")
+                        time.sleep(1)
+                    
+                    # 执行资源阻止脚本
+                    browser.page.run_js("window.stopUnnecessaryLoading && window.stopUnnecessaryLoading();")
+                    
+                    # 解析页面内容
+                    html = browser.html
+                    if html and len(html) > 1000:
+                        movie_info = crawler.parse_movie_page(html)
+                        
+                        if movie_info and movie_info.get("title"):
+                            # 保存到JSON文件
+                            crawler.save_to_json(movie_info, 'ja')
+                            results[movie_id] = movie_info
+                            
+                            logger.info(f"成功爬取电影 {movie_id}")
+                            break
+                        else:
+                            logger.warning(f"爬取电影 {movie_id} 失败，尝试重试 {attempt+1}/{max_retries}")
+                    else:
+                        logger.warning(f"获取的HTML内容无效，尝试重试 {attempt+1}/{max_retries}")
+                        
+                    if attempt < max_retries - 1:
+                        time.sleep(1)
+                except Exception as e:
+                    logger.error(f"爬取电影 {movie_id} 出错: {e}")
+                    if attempt < max_retries - 1:
+                        logger.info(f"将在1秒后重试...")
+                        time.sleep(1)
+                    else:
+                        logger.error(f"已达到最大重试次数，跳过电影 {movie_id}")
+            
+            # 电影之间添加短暂延迟，避免请求过于频繁
+            if i < len(movie_ids) - 1:
+                time.sleep(delay_between_movies)
+    
+    except Exception as e:
+        logger.error(f"批量爬取过程中发生错误: {e}", exc_info=True)
+    finally:
+        # 确保浏览器被关闭
+        if browser:
+            try:
+                browser.close()
+                logger.info("浏览器已关闭")
+            except:
+                pass
+    
+    return results
 
 def main():
-    """主函数，运行爬虫 - 只处理日语版本"""
-    # 配置日志
     logs_dir = Path('logs')
     logs_dir.mkdir(exist_ok=True)
     
     logger.remove()
     logger.add(
         logs_dir / "drission_movie_test.log",
-        rotation="10 MB",
-        retention="10 days",
-        level="INFO",
-        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{line} - {message}",
+        rotation="10 MB", retention="10 days", level="DEBUG",
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
     )
     logger.add(
-        sys.stderr,
-        level="INFO",
+        sys.stderr, level="INFO",
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
     
-    # 从命令行参数获取电影ID，如果没有提供则使用默认值
-    if len(sys.argv) > 1:
-        movie_id = sys.argv[1]
-    else:
-        movie_id = "sdjs-146"  # 默认电影ID
+    import argparse
     
-    # 创建数据和结果目录
-    data_dir = Path('data')
-    data_dir.mkdir(exist_ok=True)
+    parser = argparse.ArgumentParser(description="爬取电影详情信息")
+    parser.add_argument("movie_ids", nargs="*", default=["sdjs-146", "rctd-462"], help="要爬取的电影ID，可以提供多个")
+    parser.add_argument("--headless", action="store_true", help="使用无头模式运行浏览器")
+    parser.add_argument("--max-retries", type=int, default=2, help="每个电影的最大重试次数")
+    parser.add_argument("--delay", type=float, default=0.5, help="电影之间的延迟时间(秒)")
     
-    # 打印开始信息
-    logger.info(f"开始爬取电影: {movie_id} (日语版本)")
-    logger.info("使用优化策略：只处理日语版本")
+    args = parser.parse_args()
     
-    # 创建并运行爬虫
-    crawler = MovieDetailCrawler(movie_id=movie_id)
+    # 批量爬取电影信息
+    results = batch_crawl_movies(
+        args.movie_ids, 
+        headless=args.headless, 
+        max_retries=args.max_retries, 
+        delay_between_movies=args.delay
+    )
     
-    try:
-        # 不使用无头模式，便于观察页面加载情况
-        movie_info = crawler.crawl(headless=False)
-        
-        # 将结果保存到文件
-        crawler.save_to_json(movie_info)
-            
-        # 打印详细信息
+    # 显示结果摘要
+    logger.info(f"爬取完成，共成功爬取 {len(results)}/{len(args.movie_ids)} 部电影")
+    for movie_id, result in results.items():
         logger.info(f"电影 {movie_id} 日语版本爬取完成")
-        logger.info(f"  标题: {movie_info.get('title', '未知')}")
-        logger.info(f"  女优: {', '.join(movie_info.get('actresses', ['未知']))}")
-        if movie_info.get('tags'):
-            tag_preview = ', '.join(movie_info.get('tags', [])[:5])
-            logger.info(f"  标签: {tag_preview}{' ...' if len(movie_info.get('tags', [])) > 5 else ''}")
-        logger.info(f"  制作商: {movie_info.get('studio', '未知')}")
-        logger.info(f"  发行日期: {movie_info.get('release_date', '未知')}")
-        logger.info(f"  时长: {movie_info.get('duration', '未知')}")
-        logger.info(f"  封面URL: {movie_info.get('cover_url', '未知')}")
+        logger.info(f"  标题: {result.get('title', '未知')}")
+        logger.info(f"  女优: {', '.join(result.get('actresses', ['未知']))}")
+        logger.info(f"  时长: {result.get('duration_seconds', '未知')} 秒")
         logger.info(f"  数据已保存到: data/{movie_id}_ja.json")
-        
-    except Exception as e:
-        logger.error(f"爬虫出错: {e}", exc_info=True)
-    finally:
-        crawler.close()
-
 
 if __name__ == "__main__":
+    # Create a folder 'app/utils' and place a dummy 'drission_utils.py' file there,
+    # or install the actual library if you have it.
+    class DummyBrowser:
+        def __init__(self, *args, **kwargs):
+            self.html = ""
+            self.page = self
+            self.wait = self
+        def get(self, *args, **kwargs): pass
+        def quit(self, *args, **kwargs): pass
+        def close(self, *args, **kwargs): pass
+        def run_js(self, *args, **kwargs): pass
+        def load_start(self, *args, **kwargs): pass
+
+    # To make the script runnable, we mock the missing import
+    # In your actual environment, you would have this module
+    if 'app' not in sys.modules:
+        sys.modules['app'] = type('module')('app')
+        sys.modules['app.utils'] = type('module')('app.utils')
+        sys.modules['app.utils.drission_utils'] = type('module')('app.utils.drission_utils')
+        setattr(sys.modules['app.utils.drission_utils'], 'CloudflareBypassBrowser', DummyBrowser)
+
     main()

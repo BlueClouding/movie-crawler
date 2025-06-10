@@ -44,6 +44,8 @@ class CloudflareBypassBrowser:
         self.load_images = load_images
         self.timeout = timeout
         self.page = None
+        self._cf_challenge_solved = False  # 标记是否已经解决了Cloudflare挑战
+        self._last_html = None  # 缓存最后一次获取的HTML
         
         # 立即初始化浏览器
         self._init_browser()
@@ -185,52 +187,104 @@ class CloudflareBypassBrowser:
             
         try:
             logger.info(f"正在访问: {url}")
-            # 设置页面加载策略
-            if not wait_for_full_load:
-                # 禁用图片、CSS、字体等资源加载
+            # 如果已经解决了Cloudflare挑战，可以使用更激进的优化
+            if self._cf_challenge_solved and not wait_for_full_load:
+                # 已经通过了Cloudflare挑战，可以使用更激进的优化
                 try:
-                    # 使用JavaScript禁用图片和其他资源加载
+                    # 在页面加载前设置拦截器来阻止不必要的资源加载
                     self.page.run_js("""
-                    // 禁用图片加载
-                    document.addEventListener('DOMContentLoaded', function() {
-                        var images = document.getElementsByTagName('img');
-                        for (var i = 0; i < images.length; i++) {
-                            images[i].src = '';
-                        }
-                        // 禁用CSS
-                        var links = document.getElementsByTagName('link');
-                        for (var i = 0; i < links.length; i++) {
-                            if (links[i].rel === 'stylesheet') {
-                                links[i].href = '';
+                    // 在页面开始加载前设置拦截器
+                    window.addEventListener('beforeunload', function() {
+                        // 设置拦截器禁用图片、CSS等资源加载
+                        var originalOpen = XMLHttpRequest.prototype.open;
+                        XMLHttpRequest.prototype.open = function() {
+                            if (arguments[1] && (
+                                arguments[1].endsWith('.jpg') || 
+                                arguments[1].endsWith('.png') || 
+                                arguments[1].endsWith('.gif') || 
+                                arguments[1].endsWith('.css') || 
+                                arguments[1].endsWith('.woff') || 
+                                arguments[1].endsWith('.woff2')
+                            )) {
+                                // 阻止加载这些资源
+                                return;
                             }
-                        }
+                            return originalOpen.apply(this, arguments);
+                        };
+                    });
+                    """)
+                except Exception as e:
+                    logger.warning(f"设置资源拦截失败: {e}")
+            elif not wait_for_full_load:
+                # 首次访问时不要过度优化，可能影响Cloudflare检测
+                try:
+                    # 使用较温和的方式禁用图片和其他资源加载
+                    self.page.run_js("""
+                    // 在DOM加载后清除不必要的资源
+                    document.addEventListener('DOMContentLoaded', function() {
+                        // 延迟执行以避免影响Cloudflare检测
+                        setTimeout(function() {
+                            var images = document.getElementsByTagName('img');
+                            for (var i = 0; i < images.length; i++) {
+                                images[i].loading = 'lazy';
+                            }
+                        }, 1000);
                     });
                     """)
                 except Exception as e:
                     logger.warning(f"禁用资源加载失败: {e}")
             
-            # 开始导航到页面，但使用较短的超时时间
-            actual_timeout = timeout if wait_for_full_load else min(dom_ready_timeout, timeout)
+            # 根据是否已解决Cloudflare挑战来决定超时时间
+            if self._cf_challenge_solved:
+                # 已通过挑战，可以使用更短的超时
+                actual_timeout = min(dom_ready_timeout, timeout) if not wait_for_full_load else timeout
+            else:
+                # 首次访问或未通过挑战，给予更长的超时时间
+                actual_timeout = timeout
+                
+            # 访问页面
             self.page.get(url, timeout=actual_timeout)
             
             # 如果不需要等待完全加载，在DOM就绪后立即停止加载
             if not wait_for_full_load:
+                # 检查DOM是否已就绪
+                is_ready = self.page.run_js('return document.readyState !== "loading"')
+                
+                if not is_ready:
+                    # 如果DOM还没有就绪，等待一个短暂停
+                    time.sleep(0.5)
+                
                 # 停止加载其他资源
                 self.page.run_js('window.stop()')
-                # 使用JavaScript取消未完成的请求
+                
+                # 清除不必要的资源
                 try:
-                    # 使用更简单的方法清除资源
                     self.page.run_js("""
-                    // 清除所有图片资源
-                    var imgs = document.getElementsByTagName('img');
-                    for (var i = 0; i < imgs.length; i++) {
-                        imgs[i].src = '';
-                    }
-                    // 清除所有iframe
-                    var frames = document.getElementsByTagName('iframe');
-                    for (var i = 0; i < frames.length; i++) {
-                        frames[i].src = 'about:blank';
-                    }
+                    // 清除不必要的资源以加快渲染
+                    (function() {
+                        // 清除图片
+                        var imgs = document.querySelectorAll('img');
+                        for (var i = 0; i < imgs.length; i++) {
+                            if (imgs[i].src && !imgs[i]._originalSrc) {
+                                imgs[i]._originalSrc = imgs[i].src;
+                                imgs[i].src = '';
+                            }
+                        }
+                        
+                        // 清除所有iframe
+                        var frames = document.querySelectorAll('iframe');
+                        for (var i = 0; i < frames.length; i++) {
+                            if (frames[i].src) {
+                                frames[i].src = 'about:blank';
+                            }
+                        }
+                        
+                        // 禁用未加载的脚本
+                        var scripts = document.querySelectorAll('script[src]:not([loaded])');
+                        for (var i = 0; i < scripts.length; i++) {
+                            scripts[i].src = '';
+                        }
+                    })();
                     """)
                 except Exception as e:
                     logger.warning(f"清除资源失败: {e}")
@@ -238,10 +292,20 @@ class CloudflareBypassBrowser:
             # 检查是否遇到Cloudflare挑战
             if self._is_cloudflare_challenge():
                 logger.info("检测到 Cloudflare 挑战，等待解决中...")
+                
                 if wait_for_cf:
-                    return self._wait_for_cloudflare(max_wait=60)
-                # 即使不等待自动解决，也返回true以便允许用户手动操作
-                return True
+                    # 等待解决Cloudflare挑战
+                    if not self._wait_for_cloudflare_challenge():
+                        logger.warning("等待解决Cloudflare挑战失败")
+                        return False
+                    else:
+                        # 标记已经解决了Cloudflare挑战
+                        self._cf_challenge_solved = True
+                        logger.info("已成功解决Cloudflare挑战")
+                else:
+                    # 不等待，直接返回失败
+                    logger.warning("遇到Cloudflare挑战，但未设置等待")
+                    return False
             
             # 检查页面内容是否正常加载
             html = self.get_html()
@@ -312,7 +376,7 @@ class CloudflareBypassBrowser:
             logger.warning(f"检查 Cloudflare 挑战时出错: {e}")
             return False
     
-    def _wait_for_cloudflare(self, max_wait: int = 60) -> bool:
+    def _wait_for_cloudflare(self, max_wait: int = 60):
         """
         等待 Cloudflare 挑战完成
 
@@ -322,42 +386,34 @@ class CloudflareBypassBrowser:
         Returns:
             bool: 是否成功通过挑战
         """
-        logger.info(f"等待 Cloudflare 挑战完成，最多等待 {max_wait} 秒...")
+        return self._wait_for_cloudflare_challenge(max_wait)
+        
+    def _wait_for_cloudflare_challenge(self, max_wait: int = 60):
+        """
+        等待 Cloudflare 挑战完成
+
+        Args:
+            max_wait: 最大等待时间（秒），默认60秒
+
+        Returns:
+            bool: 是否成功通过挑战
+        """
         start_time = time.time()
+        logger.info(f"等待通过 Cloudflare 挑战，最多等待 {max_wait} 秒...")
         
         while time.time() - start_time < max_wait:
-            # 检查是否仍然在 Cloudflare 页面
+            # 检查是否仍在 Cloudflare 挑战页面
             if not self._is_cloudflare_challenge():
-                logger.info("Cloudflare 挑战已通过！")
+                logger.info("已通过 Cloudflare 挑战！")
                 return True
                 
-            # 随机鼠标移动有时会有帮助
-            if random.random() < 0.3:
-                try:
-                    # 使用 JavaScript 进行简单的鼠标移动
-                    x, y = random.randint(100, 600), random.randint(100, 400)
-                    self.page.run_js(f"document.elementFromPoint({x}, {y}).scrollIntoView({{behavior: 'smooth', block: 'center'}});")
-                except:
-                    pass
+            # 等待一会儿再检查
+            time.sleep(2)
             
-            # 随机拖动
-            if random.random() < 0.2:
-                try:
-                    self.page.run_js("""
-                    window.scrollBy({
-                        top: Math.floor(Math.random() * 100),
-                        behavior: 'smooth'
-                    });
-                    """)
-                except:
-                    pass
-            
-            # 等待一段时间再检查
-        
-        logger.warning(f"等待 Cloudflare 挑战超时，耗时 {max_wait} 秒")
+        logger.warning(f"等待 {max_wait} 秒后仍未通过 Cloudflare 挑战")
         return False
     
-    def get_html(self) -> str:
+    def get_html(self):
         """
         获取当前页面的 HTML 内容
 
@@ -366,7 +422,24 @@ class CloudflareBypassBrowser:
         """
         if not self.page:
             return ""
-        return self.page.html
+        
+        # 获取并缓存HTML内容
+        self._last_html = self.page.html
+        return self._last_html
+        
+    @property
+    def html(self):
+        """
+        HTML属性，兼容性支持，返回当前页面的HTML内容
+        
+        Returns:
+            str: HTML内容
+        """
+        # 如果有缓存的HTML且不为空，则返回缓存
+        if self._last_html:
+            return self._last_html
+        # 否则重新获取
+        return self.get_html()
     
     def get_cookies(self) -> Dict:
         """
