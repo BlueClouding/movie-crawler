@@ -41,7 +41,7 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
             self._logger.error(f"Error creating movie info: {str(e)}")
             raise
 
-    async def get_movie_info_by_code(self, code: str, language: str = 'ja') -> Optional[MovieInfo]:
+    async def get_movie_info_by_code(self, code: str,   language: str = 'ja') -> Optional[MovieInfo]:
         """
         Get movie info by movie code and language
         
@@ -59,19 +59,19 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def update_movie_info(self, movie_info_id: int, update_data: Dict[str, Any]) -> Optional[MovieInfo]:
+    async def update_movie_info(self, movie_info_code: str, update_data: Dict[str, Any]) -> Optional[MovieInfo]:
         """
         Update an existing movie info record
         
         Args:
-            movie_info_id: ID of the movie info to update
+            movie_info_code: Code of the movie info to update
             update_data: Dictionary with data to update
             
         Returns:
             Optional[MovieInfo]: Updated movie info entity if found, None otherwise
         """
         try:
-            movie_info = await self.get_by_id(movie_info_id)
+            movie_info = await self.get_movie_info_by_code(movie_info_code)
             if not movie_info:
                 return None
                 
@@ -82,7 +82,7 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
             await self.db.flush()
             return movie_info
         except Exception as e:
-            self._logger.error(f"Error updating movie info ID {movie_info_id}: {str(e)}")
+            self._logger.error(f"Error updating movie info for code {movie_info_code}: {str(e)}")
             raise
 
     async def update_movie_info_by_code(self, code: str, language: str, update_data: Dict[str, Any]) -> Optional[MovieInfo]:

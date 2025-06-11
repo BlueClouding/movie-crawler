@@ -17,14 +17,16 @@ from app.utils.drission_utils import CloudflareBypassBrowser
 from crawler.parser.movie_parser import MovieParser
 from crawler.parser.actress_parser import ActressParser
 from crawler.service.crawler_progress_service import CrawlerProgressService
-from crawler.repository.movie_repository import MovieRepository
 from common.db.entity.movie import Movie, MovieStatus
+from crawler.repository.movie_info_repository import MovieInfoRepository
+from crawler.repository.movie_repository import MovieRepository
 
 class MovieDetailCrawlerService:
     """Crawler for fetching movie details."""
     
     def __init__(self,
         crawler_progress_service: CrawlerProgressService = Depends(CrawlerProgressService),
+        movie_info_repository: MovieInfoRepository = Depends(MovieInfoRepository),
         movie_repository: MovieRepository = Depends(MovieRepository)
         ):
         """Initialize DetailCrawler.
@@ -48,8 +50,8 @@ class MovieDetailCrawlerService:
         
         # Service dependencies
         self._crawler_progress_service = crawler_progress_service
+        self._movie_info_repository = movie_info_repository
         self._movie_repository = movie_repository
-
     # 单次执行的方法
     async def process_movies_details_once(self, limit: int = 100) -> List[Movie]:
         """使用原有HTTP方法处理电影详情
@@ -281,24 +283,24 @@ class MovieDetailCrawlerService:
         
         return movie_id, None
     
-    async def _save_to_db(self, movie_info: Dict[str, Any], movie_id: str, language: str = 'ja') -> None:
+    async def _save_to_db(self, movie_info: Dict[str, Any], movie_code: str, language: str = 'ja') -> None:
         """保存电影信息到数据库
 
         Args:
             movie_info: 电影详情
-            movie_id: 电影ID
+            movie_code: 电影代码
             language: 语言版本
         """
         if not movie_info or not isinstance(movie_info, dict):
-            self._logger.error(f"电影 {movie_id} 信息无效，无法保存到数据库")
+            self._logger.error(f"电影 {movie_code} 信息无效，无法保存到数据库")   
             return
 
         try:
             # 先检查电影是否已存在
-            movie = self._movie_repository.get_movie_by_code(movie_id)
-            if not movie:
-                self._logger.warning(f"电影 {movie_id} 在数据库中不存在，无法更新")
-                return
+            movie_info = self._movie_info_repository.get_movie_info_by_code(movie_code)
+            if not movie_info:
+                self._movie_info_repository.create_movie_info(movie_info)
+                self._logger.info(f"电影 {movie_code} 已成功创建并保存到数据库")
 
             # 提取并转换电影信息
             updates = {
@@ -358,43 +360,17 @@ class MovieDetailCrawlerService:
                     updates[language_desc_field] = movie_info['description']
 
             # 将数据保存到数据库
-            # 使用数据实体的ID更新记录
-            updated = await self._movie_repository.update_movie(movie.id, updates)
+            updated = await self._movie_info_repository.update_movie_info(movie_code, updates)
 
             if updated:
-                self._logger.info(f"电影 {movie_id} 信息已成功保存到数据库")
-
-                # 可选：更新关联记录，如女演员、类别等
-                if 'actresses' in movie_info and isinstance(movie_info['actresses'], list):
-                    await self._update_movie_actresses(movie.id, movie_info['actresses'])
+                self._logger.info(f"电影 {movie_code} 信息已成功保存到数据库")
             else:
-                self._logger.warning(f"电影 {movie_id} 信息更新失败")
+                self._logger.warning(f"电影 {movie_code} 信息更新失败")
 
         except Exception as e:
-            self._logger.error(f"保存电影 {movie_id} 信息到数据库时出错: {str(e)}")
+            self._logger.error(f"保存电影 {movie_code} 信息到数据库时出错: {str(e)}")
             import traceback
             self._logger.error(traceback.format_exc())
-
-    async def _update_movie_actresses(self, movie_id: int, actresses: List[str]) -> None:
-        """更新电影的女演员关联
-
-        Args:
-            movie_id: 数据库中电影的ID
-            actresses: 女演员名称列表
-        """
-        try:
-            # 先检查所有女演员是否存在，不存在则创建
-            for actress_name in actresses:
-                # 调用仓库方法检查并创建女演员
-                await self._movie_repository.find_or_create_actress(actress_name)
-
-            # 更新电影与女演员的关联
-            await self._movie_repository.update_movie_actresses(movie_id, actresses)
-
-            self._logger.info(f"电影ID {movie_id} 的女演员关联已更新: {', '.join(actresses)}")
-        except Exception as e:
-            self._logger.error(f"更新电影ID {movie_id} 的女演员关联时出错: {str(e)}")
-
 
     async def _create_browser_pool(self, count: int, headless: bool = True) -> List[CloudflareBypassBrowser]:
         """
