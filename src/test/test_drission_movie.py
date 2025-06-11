@@ -7,7 +7,7 @@ import re
 import json
 import time
 import traceback
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Tuple
 from pathlib import Path
 from loguru import logger
 from bs4 import BeautifulSoup
@@ -247,6 +247,83 @@ class MovieDetailCrawler:
         links = self._extract_info_by_label(soup, label)
         return links[0] if links else ""
 
+    def extract_m3u8_info(self, html: str) -> Dict[str, Any]:
+        """
+        从HTML中提取M3U8加密信息
+        
+        Args:
+            html: 包含JavaScript加密代码的HTML内容
+            
+        Returns:
+            Dict: 包含encrypted_code和dictionary的字典
+        """
+        result = {"encrypted_code": None, "dictionary": None}
+        soup = BeautifulSoup(html, "html.parser")
+        scripts = soup.select("script")
+        
+        # 正则表达式模式，匹配加密的JavaScript代码
+        pattern = re.compile(r"eval\(function\(p,a,c,k,e,d\)\{(.+?)\}\('(.+?)',([0-9]+),([0-9]+),'(.+?)'\.((?:split\('\|'\))|(?:split\('\|'\),0,\{\}))\)")
+        
+        for script in scripts:
+            script_content = script.string
+            if script_content and "eval(function(p,a,c,k,e,d)" in script_content:
+                matcher = pattern.search(script_content)
+                if matcher:
+                    dictionary_str = matcher.group(5)
+                    dictionary = dictionary_str.split("|") if dictionary_str else []
+                    encrypted_code = matcher.group(2)
+                    result["encrypted_code"] = encrypted_code
+                    result["dictionary"] = dictionary
+                    logger.info(f"成功提取到M3U8加密信息，字典长度: {len(dictionary)}")
+                    return result
+        
+        logger.warning("未找到M3U8加密信息")
+        return result
+    
+    def deobfuscate_m3u8(self, encrypted_code: Optional[str], dictionary: Optional[List[str]]) -> List[str]:
+        """
+        解密M3U8 URL信息
+        
+        Args:
+            encrypted_code: 加密的代码
+            dictionary: 用于解密的字典
+            
+        Returns:
+            List[str]: 解密后的M3U8 URL列表
+        """
+        if not encrypted_code or not dictionary:
+            logger.warning("解密M3U8失败: 加密代码或字典为空")
+            return []
+        
+        parts = encrypted_code.split(";")
+        results = []
+        
+        for part in parts:
+            if "=" not in part:
+                continue
+                
+            # 提取值部分，去除引号、反斜杠和空格
+            value = part.split("=")[1].replace('"', '').replace("'", "").replace("\\", "").replace(" ", "")
+            
+            decoded = ""
+            for c in value:
+                if c in ['.', '-', '/', ':']:
+                    decoded += c
+                else:
+                    try:
+                        number = int(c, 16)
+                        if 0 <= number < len(dictionary):
+                            decoded += dictionary[number]
+                    except ValueError:
+                        # 如果不是十六进制字符，保留原字符
+                        decoded += c
+            
+            if decoded and (".m3u8" in decoded or "/master" in decoded):
+                results.append(decoded)
+                logger.info(f"解密出M3U8 URL: {decoded[:50]}...")
+        
+        return results
+        
     def parse_movie_page(self, html: str) -> Dict:
         """
         分析电影页面HTML以提取详细信息 (日语专用)
@@ -256,12 +333,23 @@ class MovieDetailCrawler:
             "crawled_at": time.strftime("%Y-%m-%d %H:%M:%S"), "title": "",
             "cover_url": "", "release_date": "", "duration_seconds": None,
             "studio": "", "label": "", "series": "", "director": "",
-            "tags": [], "actresses": [], "description": "", "magnets": []
+            "tags": [], "actresses": [], "description": "", "magnets": [], 
+            "m3u8_urls": []
         }
         try:
-            # 检查HTML内容的有效性
-            if not html or len(html) < 1000 or ("MissAV | オンラインで無料" in html and self.movie_id not in html):
-                logger.error(f"HTML内容可能无效，长度: {len(html) if html else 0}，内容可能是网站首页")
+            # 检查HTML内容的有效性 - 更严格的检查
+            if not html or len(html) < 1000:
+                logger.error(f"HTML内容长度不足: {len(html) if html else 0}")
+                return result
+                
+            # 验证HTML是否包含电影ID
+            if self.movie_id.upper() not in html.upper():
+                logger.error(f"HTML内容不包含电影ID: {self.movie_id}")
+                return result
+                
+            # 验证不是首页
+            if "MissAV | オンラインで無料" in html and not re.search(r'<h1[^>]*>[^<]*' + re.escape(self.movie_id) + r'[^<]*</h1>', html, re.IGNORECASE):
+                logger.error(f"HTML内容可能是网站首页")
                 return result
                 
             soup = BeautifulSoup(html, "html.parser")
@@ -329,6 +417,18 @@ class MovieDetailCrawler:
                             break
                         except (ValueError, AttributeError):
                             pass
+
+            # 提取M3U8流媒体URL
+            try:
+                # 提取加密的M3U8信息
+                m3u8_info = self.extract_m3u8_info(html)
+                # 解密M3U8 URL
+                m3u8_urls = self.deobfuscate_m3u8(m3u8_info["encrypted_code"], m3u8_info["dictionary"])
+                if m3u8_urls:
+                    result["m3u8_urls"] = m3u8_urls
+                    logger.info(f"成功提取到{len(m3u8_urls)}个M3U8流媒体URL")
+            except Exception as e:
+                logger.error(f"提取M3U8流媒体URL失败: {e}")
 
             # 获取发布日期
             og_release_date = soup.select_one('meta[property="og:video:release_date"]')
@@ -478,14 +578,15 @@ def batch_crawl_movies(movie_ids, headless=False, max_retries=2, delay_between_m
         browser = CloudflareBypassBrowser(
             headless=headless,
             user_data_dir=str(Path.home() / ".cache" / "cloudflare_bypass_browser"),
-            load_images=False,  # 不加载图片以提高速度
-            timeout=30
+            load_images=True,  # 加载图片以确保网站正常工作 (Cloudflare可能会检测)
+            timeout=30,  # 合理的超时时间
+            wait_after_cf=3  # 缩短 Cloudflare 后的等待时间
         )
         
         # 先访问一次基础页面，通过Cloudflare挑战
         logger.info("初始化浏览器并通过Cloudflare挑战...")
-        browser.get("https://missav.ai/", timeout=30)
-        time.sleep(2)  # 等待Cloudflare挑战完成
+        browser.get("https://missav.ai/", timeout=60)
+        time.sleep(10)  # 提供足够的时间等待Cloudflare挑战完成
         
         # 优化浏览器性能的JS代码
         performance_js = """
@@ -536,7 +637,7 @@ def batch_crawl_movies(movie_ids, headless=False, max_retries=2, delay_between_m
                     
                     # 等待Cloudflare挑战解决
                     logger.info("等待页面完全加载...")
-                    time.sleep(5)  # 增加基本等待时间
+                    time.sleep(2)  # 增加基本等待时间
                     
                     # 验证当前网址确实是电影页面而不是首页
                     current_url = browser.page.url
@@ -544,8 +645,17 @@ def batch_crawl_movies(movie_ids, headless=False, max_retries=2, delay_between_m
                     if movie_id not in current_url:
                         logger.warning(f"访问电影页面失败，可能被重定向到首页，重试开启新标签页直接访问")
                         # 尝试开启新标签页直接访问
-                        browser.page.new_tab(url, new_window=False)
+                        new_tab = browser.page.new_tab(url, new_window=False)
                         time.sleep(5)  # 等待新标签页加载
+                        
+                        # 切换到新标签页并确保获取更新后的HTML内容
+                        browser.page = new_tab  # 确保 browser.page 引用新标签页
+                        time.sleep(2)  # 等待页面加载
+                        logger.info(f"After switch, current page URL: {browser.page.url}")
+                    
+                    # 检测到重定向，直接继续处理
+                    if "dm13" in current_url or "missav.com" in current_url:
+                        logger.info("检测到URL重定向，继续处理")
                     
                     # 检查页面是否包含电影标题的关键标记
                     check_js = """
@@ -576,7 +686,7 @@ def batch_crawl_movies(movie_ids, headless=False, max_retries=2, delay_between_m
                     """
                     
                     # 重试检查页面是否完全加载
-                    max_wait_time = 20  # 最多等待20秒
+                    max_wait_time = 5  # 最多等待5秒
                     start_time = time.time()
                     page_ready = False
                     
@@ -595,17 +705,22 @@ def batch_crawl_movies(movie_ids, headless=False, max_retries=2, delay_between_m
                     # 执行资源阻止脚本
                     browser.page.run_js("window.stopUnnecessaryLoading && window.stopUnnecessaryLoading();")
                     
-                    # 解析页面内容
+                    # 获取HTML并确保内容与电影ID相关
                     html = browser.html
-                    if html and len(html) > 1000:
+                    
+                    # 简化的HTML验证逻辑
+                    if html and len(html) > 5000:  # 只要页面有足够的内容，就尝试解析
                         movie_info = crawler.parse_movie_page(html)
                         
-                        if movie_info and movie_info.get("title"):
+                        if movie_info:
                             # 保存到JSON文件
                             crawler.save_to_json(movie_info, 'ja')
                             results[movie_id] = movie_info
                             
-                            logger.info(f"成功爬取电影 {movie_id}")
+                            if movie_info.get("title"):
+                                logger.info(f"成功爬取电影 {movie_id}，标题: {movie_info.get('title')[:30]}")
+                            else:
+                                logger.info(f"部分爬取电影 {movie_id}，但缺失标题")
                             break
                         else:
                             logger.warning(f"爬取电影 {movie_id} 失败，尝试重试 {attempt+1}/{max_retries}")

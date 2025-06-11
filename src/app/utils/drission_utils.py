@@ -26,7 +26,8 @@ class CloudflareBypassBrowser:
         user_data_dir: Optional[str] = None,
         proxy: Optional[str] = None,
         load_images: bool = True,
-        timeout: int = 30
+        timeout: int = 30,
+        wait_after_cf: int = 5
     ):
         """
         初始化 CloudflareBypassBrowser
@@ -43,9 +44,11 @@ class CloudflareBypassBrowser:
         self.proxy = proxy
         self.load_images = load_images
         self.timeout = timeout
+        self.wait_after_cf = wait_after_cf  # Cloudflare挑战后的额外等待时间
         self.page = None
         self._cf_challenge_solved = False  # 标记是否已经解决了Cloudflare挑战
         self._last_html = None  # 缓存最后一次获取的HTML
+        self.wait = self  # 添加wait属性指向self，使browser.wait可用
         
         # 立即初始化浏览器
         self._init_browser()
@@ -76,7 +79,7 @@ class CloudflareBypassBrowser:
             if not self.load_images:
                 co.no_imgs = True
             
-            # 设置超时
+            # 设置超时（降低以提高效率）
             co.page_load_timeout = self.timeout
             co.script_timeout = self.timeout
             co.connection_timeout = 10
@@ -135,40 +138,64 @@ class CloudflareBypassBrowser:
         if not self.page:
             return
             
-        # 给浏览器注入反检测 JavaScript
-        stealth_js = """
-        // 修改 navigator.webdriver
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => false,
-        });
-        
-        // 修改 navigator.plugins
-        if (navigator.plugins.length === 0) {
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5],
-            });
-        }
-        
-        // 修改 navigator.languages
-        if (navigator.languages.length === 0) {
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['zh-CN', 'zh', 'en-US', 'en'],
-            });
-        }
-        
-        // 移除 Automation Controller 属性
-        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-        """
-        
+        # 分段注入反检测JavaScript，提高成功率
         try:
-            self.page.run_js(stealth_js)
-            logger.debug("注入了反检测JS脚本")
+            # 1. 修改 navigator.webdriver (最关键的属性)
+            self.page.run_js("""
+            try {
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: function() { return false; }
+                });
+                console.log('Successfully modified navigator.webdriver');
+            } catch(e) { console.error('Failed to modify webdriver:', e); }
+            """)
+            
+            # 2. 修改 navigator.plugins
+            self.page.run_js("""
+            try {
+                if (navigator.plugins && navigator.plugins.length === 0) {
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: function() { return [1, 2, 3, 4, 5]; }
+                    });
+                    console.log('Successfully modified navigator.plugins');
+                }
+            } catch(e) { console.error('Failed to modify plugins:', e); }
+            """)
+            
+            # 3. 修改 navigator.languages
+            self.page.run_js("""
+            try {
+                if (navigator.languages && navigator.languages.length === 0) {
+                    Object.defineProperty(navigator, 'languages', {
+                        get: function() { return ['zh-CN', 'zh', 'en-US', 'en']; }
+                    });
+                    console.log('Successfully modified navigator.languages');
+                }
+            } catch(e) { console.error('Failed to modify languages:', e); }
+            """)
+            
+            # 4. 移除 Automation Controller 属性 (安全地)
+            self.page.run_js("""
+            try {
+                if (window.cdc_adoQpoasnfa76pfcZLmcfl_Array) {
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                }
+                if (window.cdc_adoQpoasnfa76pfcZLmcfl_Promise) {
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                }
+                if (window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol) {
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                }
+                console.log('Successfully removed automation properties');
+            } catch(e) { console.error('Failed to remove automation properties:', e); }
+            """)
+            
+            logger.debug("成功注入反检测JS脚本")
         except Exception as e:
             logger.warning(f"注入反检测JS脚本失败: {e}")
+            # 即使注入失败，也继续执行，不要中断程序
     
-    def get(self, url: str, wait_for_cf: bool = False, timeout: int = 30, wait_for_full_load: bool = False, dom_ready_timeout: int = 5) -> bool:
+    def get(self, url: str, wait_for_cf: bool = True, timeout: int = 60, wait_for_full_load: bool = True, dom_ready_timeout: int = 10) -> bool:
         """
         打开URL并处理Cloudflare挑战
         
@@ -176,8 +203,8 @@ class CloudflareBypassBrowser:
             url: 要访问的URL
             wait_for_cf: 是否等待Cloudflare挑战完成
             timeout: 访问超时时间（秒）
-            wait_for_full_load: 是否等待页面完全加载，默认为False只等待DOM就绪
-            dom_ready_timeout: DOM就绪等待超时时间（秒），默认5秒
+            wait_for_full_load: 是否等待页面完全加载，默认为True
+            dom_ready_timeout: DOM就绪等待超时时间（秒），默认10秒
         
         Returns:
             是否成功打开页面
@@ -289,21 +316,18 @@ class CloudflareBypassBrowser:
                 except Exception as e:
                     logger.warning(f"清除资源失败: {e}")
             
-            # 检查是否遇到Cloudflare挑战
+            # 检查是否有 Cloudflare 挑战
             if self._is_cloudflare_challenge():
                 logger.info("检测到 Cloudflare 挑战，等待解决中...")
                 
                 if wait_for_cf:
-                    # 等待解决Cloudflare挑战
-                    if not self._wait_for_cloudflare_challenge():
-                        logger.warning("等待解决Cloudflare挑战失败")
+                    # 等待 Cloudflare 挑战完成
+                    cf_passed = self._wait_for_cloudflare_challenge()
+                    if not cf_passed:
+                        logger.error("Cloudflare 挑战解决失败")
                         return False
-                    else:
-                        # 标记已经解决了Cloudflare挑战
-                        self._cf_challenge_solved = True
-                        logger.info("已成功解决Cloudflare挑战")
+                    logger.info("Cloudflare 挑战已解决，继续加载页面")
                 else:
-                    # 不等待，直接返回失败
                     logger.warning("遇到Cloudflare挑战，但未设置等待")
                     return False
             
@@ -320,10 +344,22 @@ class CloudflareBypassBrowser:
             # 即使出错也返回true，允许用户手动解决
             return True
     
-    def _is_cloudflare_challenge(self) -> bool:
+    def run_js(self, script):
+        """运行JavaScript脚本并返回结果
+        
+        Args:
+            script: JavaScript脚本字符串
+            
+        Returns:
+            执行结果
         """
-        检查当前页面是否显示 Cloudflare 挑战
-
+        if not self.page:
+            raise RuntimeError("浏览器尚未初始化")
+        return self.page.run_js(script)
+    
+    def _is_cloudflare_challenge(self):
+        """检测页面是否包含Cloudflare挑战
+        
         Returns:
             bool: 如果检测到 Cloudflare 挑战则返回 True
         """
@@ -331,64 +367,56 @@ class CloudflareBypassBrowser:
             return False
             
         try:
-            # 获取页面内容
-            html = self.page.html.lower()
-            title = self.page.title.lower() if self.page.title else ""
+            # 先检查页面是否已经正确加载了主要内容
+            # 如果页面已经加载了较多有效内容，则认为不需要等待Cloudflare
+            content_loaded = """
+            return {
+                'validContent': !!document.querySelector('h1') && 
+                               document.querySelectorAll('a').length > 20 &&
+                               document.querySelectorAll('div').length > 50,
+                'bodyLength': document.body ? document.body.innerHTML.length : 0,
+                'hasMoviePanel': !!document.querySelector('.movie-info-panel') ||
+                                !!document.querySelector('.grid-cols-2')
+            };
+            """
             
-            # Cloudflare 挑战的典型特征
-            cf_indicators = [
-                'cloudflare',
-                'checking your browser',
-                'just a moment',
-                'please wait',
-                'security check',
-                'please turn javascript on',
-                'challenge-running',
-                'cf-challenge',
-                'cf_chl',
-                'ray id'
-            ]
+            content_status = self.page.run_js(content_loaded)
+            # 如果页面内容已充分加载，不需要再等待Cloudflare挑战
+            if (content_status.get('validContent', False) or 
+                content_status.get('hasMoviePanel', False) or 
+                content_status.get('bodyLength', 0) > 100000):
+                logger.info("检测到页面已经包含完整内容，无需继续等待Cloudflare")
+                return False
             
-            # 检查页面内容
-            for indicator in cf_indicators:
-                if indicator in html or indicator in title:
-                    return True
-                    
-            # 检查特定元素
-            cf_elements = [
-                '//h1[contains(text(), "Checking your browser")]',
-                '//h1[contains(text(), "Just a moment")]',
-                '//div[contains(@class, "cf-browser-verification")]',
-                '//div[contains(@id, "cf-")]',
-                '//iframe[@id="cf-chl-widget"]'
-            ]
+            # 检查标题是否包含 Cloudflare 相关内容
+            title = self.page.run_js("return document.title;")
+            if title and ('Cloudflare' in title or '安全检查' in title or 'Security Challenge' in title or 'チェックしています' in title):
+                return True
+                
+            # 检查页面内容是否包含 Cloudflare 特征
+            content_check = """
+            return {
+                'hasCloudflareCaptcha': !!document.querySelector('#challenge-form') || 
+                                        !!document.querySelector('#cf-hcaptcha') ||
+                                        !!document.querySelector('#cf-spinner') ||
+                                        !!document.querySelector('[id*="cloudflare"]'),
+                'hasCloudflareText': document.body && (
+                    document.body.textContent.includes('Cloudflare') ||
+                    document.body.textContent.includes('检查站点连接是否安全') ||
+                    document.body.textContent.includes('Checking if the site connection is secure') ||
+                    document.body.textContent.includes('セキュリティチェック')
+                )
+            };
+            """
             
-            for xpath in cf_elements:
-                try:
-                    if self.page.ele(xpath, timeout=0.5):
-                        return True
-                except:
-                    continue
-                    
-            return False
+            result = self.page.run_js(content_check)
+            return result.get('hasCloudflareCaptcha', False) or result.get('hasCloudflareText', False)
             
         except Exception as e:
             logger.warning(f"检查 Cloudflare 挑战时出错: {e}")
             return False
     
-    def _wait_for_cloudflare(self, max_wait: int = 60):
-        """
-        等待 Cloudflare 挑战完成
-
-        Args:
-            max_wait: 最大等待时间（秒），默认60秒
-
-        Returns:
-            bool: 是否成功通过挑战
-        """
-        return self._wait_for_cloudflare_challenge(max_wait)
-        
-    def _wait_for_cloudflare_challenge(self, max_wait: int = 60):
+    def _wait_for_cloudflare_challenge(self, max_wait: int = 20):
         """
         等待 Cloudflare 挑战完成
 
@@ -399,18 +427,25 @@ class CloudflareBypassBrowser:
             bool: 是否成功通过挑战
         """
         start_time = time.time()
-        logger.info(f"等待通过 Cloudflare 挑战，最多等待 {max_wait} 秒...")
-        
         while time.time() - start_time < max_wait:
-            # 检查是否仍在 Cloudflare 挑战页面
             if not self._is_cloudflare_challenge():
-                logger.info("已通过 Cloudflare 挑战！")
+                logger.info("Cloudflare 挑战已通过")
+                self._cf_challenge_solved = True
+                # 添加额外等待时间，确保页面完全加载
+                logger.info(f"等待额外的 {self.wait_after_cf} 秒以确保内容加载完全")
+                time.sleep(self.wait_after_cf)
                 return True
-                
-            # 等待一会儿再检查
+            logger.info("等待 Cloudflare 挑战通过...")
             time.sleep(2)
-            
-        logger.warning(f"等待 {max_wait} 秒后仍未通过 Cloudflare 挑战")
+        
+        # 挑战超时，尝试强制刷新页面
+        logger.warning("Cloudflare 挑战等待超时，尝试强制刷新页面")
+        try:
+            self.page.run_js("location.reload(true);")
+            time.sleep(5)  # 给页面一些加载时间
+        except Exception as e:
+            logger.error(f"刷新页面出错: {e}")
+        
         return False
     
     def get_html(self):
@@ -544,6 +579,64 @@ class CloudflareBypassBrowser:
             seconds: 等待秒数
         """
         time.sleep(seconds)
+        
+    def load_complete(self, timeout: int = 30):
+        """
+        等待页面加载完成
+        
+        Args:
+            timeout: 超时时间（秒）
+            
+        Returns:
+            bool: 是否加载完成
+        """
+        if not self.page:
+            return False
+            
+        try:
+            # 1. 等待DOM准备好
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                ready_state = self.page.run_js("return document.readyState;")
+                if ready_state == "complete":
+                    break
+                time.sleep(0.5)
+                
+            # 2. 检查页面内容是否已经加载
+            content_check = """
+            return {
+                'length': document.body ? document.body.innerHTML.length : 0,
+                'title': document.title,
+                'elements': document.querySelectorAll('*').length
+            }
+            """
+            
+            # 多次检查页面内容是否增长
+            last_count = 0
+            stable_count = 0
+            for _ in range(5):
+                if time.time() - start_time >= timeout:
+                    break
+                    
+                content_info = self.page.run_js(content_check)
+                current_count = content_info.get('elements', 0)
+                
+                if current_count > 100 and abs(current_count - last_count) < 10:
+                    # 内容稳定了
+                    stable_count += 1
+                    if stable_count >= 2:
+                        return True
+                else:
+                    stable_count = 0
+                    
+                last_count = current_count
+                time.sleep(1)
+                
+            logger.info(f"页面加载完成，元素数量: {last_count}")
+            return last_count > 100
+        except Exception as e:
+            logger.error(f"等待页面加载完成时出错: {e}")
+            return False
     
     def close(self):
         """
@@ -557,6 +650,12 @@ class CloudflareBypassBrowser:
                 logger.error(f"关闭浏览器时出错: {e}")
             finally:
                 self.page = None
+                
+    def quit(self):
+        """
+        关闭浏览器并释放资源（别名方法，兼容性支持）
+        """
+        self.close()
 
 
 def test_cloudflare_bypass(url: str = "https://missav.ai/ja"):

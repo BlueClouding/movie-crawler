@@ -5,10 +5,13 @@ import asyncio
 import time
 from datetime import datetime
 from loguru import logger
+from sqlalchemy import text, select, func
+from crawler.repository.movie_repository import MovieRepository
 
 # 导入服务模块
 from crawler.service.movie_service import MovieService, CrawlerStatus
 from crawler.service.movie_crawler_service import MovieCrawlerService
+from crawler.service.movie_detail_crawler_service import MovieDetailCrawlerService
 from app.config.database import async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +56,20 @@ async def get_movie_service() -> MovieService:
     """
     async with async_session() as session:
         yield MovieService(session)
+        
+# 获取电影详情爬虫服务实例
+async def get_movie_detail_crawler_service() -> MovieDetailCrawlerService:
+    """FastAPI依赖项，用于获取MovieDetailCrawlerService实例
+    
+    创建一个MovieDetailCrawlerService实例，注入所需依赖
+    """
+    from crawler.service.crawler_progress_service import CrawlerProgressService
+    from crawler.repository.movie_repository import MovieRepository
+    
+    async with async_session() as session:
+        progress_service = CrawlerProgressService(session)
+        movie_repo = MovieRepository(session)
+        yield MovieDetailCrawlerService(progress_service, movie_repo)
 
 # 获取或创建爬虫服务实例
 def get_crawler_service(headless: bool = True) -> MovieCrawlerService:
@@ -141,6 +158,146 @@ async def start_crawler(
         task_id="movie_crawler",
         status=task_status
     )
+
+@router.post("/crawl-movie-details", response_model=TaskResponse)
+async def crawl_movie_details(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(10, description="要爬取的电影数量"),
+    language: str = Query("ja", description="爬取的语言版本，ja为日语，zh为中文"),
+    headless: bool = Query(True, description="是否使用无头浏览器模式"),
+    movie_detail_crawler_service: MovieDetailCrawlerService = Depends(get_movie_detail_crawler_service)
+):
+    """
+    爬取电影详情
+    
+    查询需要爬取详情的电影，并在后台启动爬虫任务
+    """
+    global task_status
+    
+    if task_status["is_running"]:
+        return TaskResponse(
+            success=False,
+            message="已有爬虫任务在运行中",
+            status=task_status
+        )
+    
+    # 查询需要爬取详情的电影代码
+    async with async_session() as session:
+        try:
+            # 查询movie表中存在但movieinfo表中不存在的电影代码
+            query = text("""
+            SELECT m.id, m.code
+            FROM movies m
+            LEFT JOIN movie_info mi ON m.code = mi.code
+            WHERE mi.code IS NULL AND m.code IS NOT NULL
+            ORDER BY m.id ASC
+            LIMIT :limit
+            """)
+            
+            # Use MovieRepository pattern for database operations
+            movie_repo = MovieRepository(session)
+            result = await movie_repo.db.execute(query, {"limit": limit})
+            movies_to_crawl = result.all()
+            
+            if not movies_to_crawl:
+                return TaskResponse(
+                    success=False,
+                    message="没有找到需要爬取详情的电影",
+                    task_id=None
+                )
+                
+            # if movide_codes's suffix is 'Uncensored-Leaked', remove it only use prefix. GMEM-099-Uncensored-Leaked -> GMEM-099
+            movie_codes = [
+                movie.code.removesuffix("-Uncensored-Leaked") 
+                for movie in movies_to_crawl 
+            ]
+
+            # 去重
+            movie_codes = list(set(movie_codes))
+            
+            logger.info(f"找到 {len(movie_codes)} 部需要爬取详情的电影: {', '.join(movie_codes[:5])}...")
+            
+            # 重置任务状态
+            task_status = {
+                "is_running": True,
+                "total_movies": len(movie_codes),
+                "processed_movies": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "current_movie": "",
+                "start_time": datetime.now().isoformat(),
+                "end_time": None,
+                "movie_codes": movie_codes
+            }
+            
+            # 添加后台任务
+            background_tasks.add_task(
+                run_movie_detail_crawler_task,
+                movie_codes,
+                language,
+                headless,
+                movie_detail_crawler_service
+            )
+            
+            return TaskResponse(
+                success=True,
+                message=f"电影详情爬虫任务已启动，将爬取 {len(movie_codes)} 部电影的详情信息",
+                task_id="movie_detail_crawler",
+                status=task_status
+            )
+            
+        except Exception as e:
+            logger.error(f"启动电影详情爬虫时出错: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"启动电影详情爬虫时出错: {str(e)}"
+            )
+
+# 后台运行电影详情爬虫任务
+async def run_movie_detail_crawler_task(
+    movie_codes: List[str],
+    language: str,
+    headless: bool,
+    movie_detail_crawler_service: MovieDetailCrawlerService
+):
+    """
+    后台运行电影详情爬虫任务
+    
+    Args:
+        movie_codes: 要爬取的电影代码列表
+        language: 爬取的语言版本
+        headless: 是否使用无头浏览器
+        movie_detail_crawler_service: 电影详情爬虫服务实例
+    """
+    global task_status
+    
+    try:
+        logger.info(f"开始爬取 {len(movie_codes)} 部电影的详情信息，语言: {language}")
+        
+        # 执行批量爬取
+        results = await movie_detail_crawler_service.batch_crawl_movie_details(
+            movie_codes=movie_codes,
+            language=language,
+            headless=headless
+        )
+        
+        # 更新任务状态
+        success_count = len(results)
+        failed_count = len(movie_codes) - success_count
+        
+        task_status["is_running"] = False
+        task_status["processed_movies"] = len(movie_codes)
+        task_status["success_count"] = success_count
+        task_status["failed_count"] = failed_count
+        task_status["end_time"] = datetime.now().isoformat()
+        
+        logger.info(f"电影详情爬虫任务完成，成功: {success_count}，失败: {failed_count}")
+        
+    except Exception as e:
+        logger.error(f"电影详情爬虫任务执行时出错: {str(e)}")
+        task_status["is_running"] = False
+        task_status["end_time"] = datetime.now().isoformat()
+        task_status["error_message"] = str(e)
 
 @router.get("/status", response_model=TaskResponse)
 async def get_crawler_status():

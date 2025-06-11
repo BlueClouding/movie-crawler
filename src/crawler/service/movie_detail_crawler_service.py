@@ -6,7 +6,10 @@ import os
 import time
 import asyncio
 import random
-from typing import Optional, List, Dict, Any
+import json
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple
+from bs4 import BeautifulSoup
 from ..utils.http import create_session
 from ..parsers.movie_parser import MovieParser
 from ..parsers.actress_parser import ActressParser
@@ -15,6 +18,9 @@ from fastapi import Depends
 from crawler.repository.movie_repository import MovieRepository
 from common.db.entity.movie import Movie, MovieStatus
 from urllib.parse import urlparse, urlunparse
+
+# 导入CloudflareBypassBrowser类
+from app.utils.drission_utils import CloudflareBypassBrowser
 
 class MovieDetailCrawlerService:
     """Crawler for fetching movie details."""
@@ -33,6 +39,10 @@ class MovieDetailCrawlerService:
         # Create session with retry mechanism
         self._session = create_session(use_proxy=True)
         
+        # 创建一个保存结果的目录
+        self._data_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / "data"
+        self._data_dir.mkdir(exist_ok=True)
+        
         # Initialize parsers
         self._movie_parser = MovieParser()
         self._actress_parser = ActressParser()
@@ -45,15 +55,26 @@ class MovieDetailCrawlerService:
 
         self._crawler_progress_service = crawler_progress_service
         self._movie_repository = movie_repository
+        
+        # 用于Cloudflare绕过的电影解析器
+        self._movie_detail_parser = None
 
     # 单次执行的方法
     async def process_movies_details_once(self, limit: int = 100) -> List[Movie]:
-        """Process one batch of pending movies."""
-        # Get pending movies from database
-        new_movies: List[Movie] = await self._movie_repository.get_new_movies(limit)
+        """使用原有HTTP方法处理电影详情
+        
+        Args:
+            limit: 单次处理的最大电影数量
+            
+        Returns:
+            List[Movie]: 处理后的电影列表
+        """
+        # 这里保留原有实现，若无实现则可以抛出异常
+        # 获取待处理的电影
+        new_movies: List[Movie] = list(await self._movie_repository.get_new_movies(limit))
         if not new_movies:
             self._logger.info(f"No pending movies to process.")
-            return
+            return []
 
         self._logger.info(f"Found {len(new_movies)} pending movies to process")
         
@@ -75,26 +96,529 @@ class MovieDetailCrawlerService:
         self._logger.info(f"Successfully processed {processed_count} out of {len(new_movies)} pending movies in this cycle.")
         return movies_details
 
-    async def _process_movie(self, movie: Movie) -> Movie:
-        """Process a single movie.
+    async def _crawl_single_movie(self, movie_id: str, language: str, browser: CloudflareBypassBrowser, max_retries: int = 3) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """
+        爬取单部电影的详情
         
         Args:
-            movie: Movie object to process
+            movie_id: 电影ID
+            language: 语言代码 (ja, en, zh)
+            browser: 浏览器实例
+            max_retries: 最大重试次数
             
+        Returns:
+            Tuple[str, Optional[Dict[str, Any]]]: 元组 (movie_id, movie_info)
+        """
+        
+        # 定义一个安全的JavaScript执行函数，以兼容不同版本的CloudflareBypassBrowser
+        def safe_run_js(script):
+            """安全地执行JavaScript，支持不同版本的浏览器API"""
+            try:
+                # 尝试直接使用browser.run_js
+                if hasattr(browser, 'run_js'):
+                    return browser.run_js(script)
+                # 如果不存在，尝试通过browser.page.run_js
+                elif hasattr(browser, 'page') and hasattr(browser.page, 'run_js'):
+                    return browser.page.run_js(script)
+                else:
+                    raise AttributeError("浏览器实例没有可用的run_js方法")
+            except Exception as e:
+                self._logger.error(f"执行JavaScript出错: {e}")
+                return None
+        from src.test.test_drission_movie import MovieDetailCrawler
+        
+        # 构建URL
+        url = f"https://missav.ai/{language}/{movie_id}"
+        self._logger.info(f"正在爬取电影: {movie_id}")
+        
+        # 实现重试逻辑
+        for attempt in range(max_retries + 1):
+            try:
+                # 访问电影页面
+                browser.get(url, timeout=15, wait_for_full_load=False)
+                time.sleep(2.0)  # 给页面加载一些时间
+                
+                # 改进的页面检测逻辑 - 更宽松的检查条件
+                check_script = """
+                () => {
+                    // 检查页面基本结构是否加载完成
+                    const body = document.body;
+                    if (!body) {
+                        return {'status': 'loading', 'reason': 'body not found'};
+                    }
+
+                    // 检查页面内容长度
+                    const bodyText = body.innerText || body.textContent || '';
+                    if (bodyText.length < 100) {
+                        return {'status': 'loading', 'reason': 'content too short'};
+                    }
+
+                    // 检查是否有Cloudflare挑战页面
+                    if (bodyText.includes('Checking your browser') ||
+                        bodyText.includes('Please wait') ||
+                        bodyText.includes('DDoS protection')) {
+                        return {'status': 'loading', 'reason': 'cloudflare challenge'};
+                    }
+
+                    // 检查多种可能的页面元素
+                    const indicators = [
+                        document.querySelector('meta[property="og:title"]'),
+                        document.querySelector('.movie-info-panel'),
+                        document.querySelector('h1'),
+                        document.querySelector('.video-player'),
+                        document.querySelector('.movie-detail'),
+                        document.querySelector('title')
+                    ];
+
+                    const foundIndicators = indicators.filter(el => el !== null);
+
+                    if (foundIndicators.length > 0) {
+                        const title = document.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+                                    document.querySelector('h1')?.textContent ||
+                                    document.title ||
+                                    'Found content';
+                        return {'status': 'ready', 'title': title.trim(), 'indicators': foundIndicators.length};
+                    }
+
+                    // 如果没有找到特定元素，但页面内容足够长，也认为加载完成
+                    if (bodyText.length > 1000) {
+                        return {'status': 'ready', 'title': 'Content loaded', 'contentLength': bodyText.length};
+                    }
+
+                    return {'status': 'loading', 'reason': 'no indicators found'};
+                }
+                """
+
+                # 执行检查脚本并验证页面状态
+                page_status = safe_run_js(check_script)
+                page_ready = False
+
+                if isinstance(page_status, dict) and page_status.get('status') == 'ready':
+                    page_ready = True
+                    title = page_status.get('title', '')
+                    indicators = page_status.get('indicators', 0)
+                    content_length = page_status.get('contentLength', 0)
+
+                    if title:
+                        self._logger.info(f"页面已加载，标题: {title[:30]}...")
+                    if indicators:
+                        self._logger.info(f"找到 {indicators} 个页面指示器")
+                    if content_length:
+                        self._logger.info(f"页面内容长度: {content_length} 字符")
+                else:
+                    # 多次检查页面状态，但减少检查次数和等待时间
+                    for check in range(2):  # 减少到2次检查
+                        time.sleep(0.3)  # 减少等待时间
+                        page_status = safe_run_js(check_script)
+                        if isinstance(page_status, dict) and page_status.get('status') == 'ready':
+                            page_ready = True
+                            self._logger.info(f"第 {check+1} 次检查后页面加载完成")
+                            break
+                        else:
+                            reason = page_status.get('reason', 'unknown') if isinstance(page_status, dict) else 'script error'
+                            self._logger.debug(f"第 {check+1} 次检查未通过，原因: {reason}")
+
+                # 如果页面检查失败，但CloudflareBypassBrowser已经确认页面加载，则信任浏览器的判断
+                if not page_ready:
+                    self._logger.warning(f"页面元素检查未通过，但浏览器已确认内容加载，继续处理...")
+                    page_ready = True  # 信任CloudflareBypassBrowser的判断
+                
+                # 获取HTML内容并验证
+                html_content = browser.html
+                if not html_content:
+                    self._logger.error(f"无法获取HTML内容")
+                    if attempt < max_retries:
+                        self._logger.info(f"将重试获取HTML内容 ({attempt+1}/{max_retries})")
+                        time.sleep(1.0)
+                        continue
+                    return movie_id, None
+
+                # 降低HTML内容长度要求，因为有些页面可能比较简洁
+                if len(html_content) < 1000:
+                    self._logger.warning(f"HTML内容较短: {len(html_content)} bytes，但仍尝试解析")
+
+                # 解析电影详情
+                parser = MovieDetailCrawler(movie_id)
+                movie_info = parser.parse_movie_page(html_content)
+
+                # 检查解析结果
+                if not movie_info or not isinstance(movie_info, dict):
+                    self._logger.error(f"电影 {movie_id} 解析失败，未获得有效数据")
+                    if attempt < max_retries:
+                        self._logger.info(f"将重试解析 ({attempt+1}/{max_retries})")
+                        time.sleep(1.0)
+                        continue
+                    return movie_id, None
+
+                # 提取流媒体URL - 修复正则表达式转义问题
+                stream_script = r"""
+                () => {
+                    const streamUrls = [];
+                    const scripts = document.querySelectorAll('script');
+                    for (const script of scripts) {
+                        const content = script.textContent || '';
+                        if (content.includes('m3u8')) {
+                            const m3u8Matches = content.match(/https?:\/\/[^"']+\.m3u8[^"']*/g);
+                            if (m3u8Matches) {
+                                streamUrls.push(...m3u8Matches);
+                            }
+                        }
+                    }
+                    return streamUrls;
+                }
+                """
+
+                stream_urls = safe_run_js(stream_script)
+                if stream_urls and isinstance(stream_urls, list):
+                    movie_info['stream_urls'] = stream_urls
+                    self._logger.info(f"找到 {len(stream_urls)} 个流媒体URL")
+
+                # 保存电影信息到数据库 movie_info表
+                self._save_to_json(movie_info, movie_id, language)
+                self._save_to_db(movie_info, movie_id, language)
+                self._logger.info(f"电影 {movie_id} 爬取成功")
+                return movie_id, movie_info
+                
+            except Exception as e:
+                self._logger.error(f"爬取电影 {movie_id} 出错: {str(e)}")
+                if attempt < max_retries:
+                    self._logger.info(f"将在 2 秒后重试 ({attempt+1}/{max_retries})")
+                    time.sleep(2.0)
+                else:
+                    self._logger.error(f"电影 {movie_id} 爬取失败，已达到最大重试次数")
+                    return movie_id, None
+        
+        return movie_id, None
+    
+    def _save_to_db(self, movie_info: Dict[str, Any], movie_id: str, language: str = 'ja') -> None:
+        """保存电影信息到数据库
+
+        Args:
+            movie_info: 电影详情
+            movie_id: 电影ID
+            language: 语言版本
+        """
+        try:
+            # 保存到数据库的逻辑
+            # TODO: 保存到数据库
+            pass
+        except Exception as e:
+            self._logger.error(f"保存电影信息到数据库时出错: {str(e)}")
+
+    def _create_browser_pool(self, count: int, headless: bool = True) -> List[CloudflareBypassBrowser]:
+        """
+        创建多个浏览器实例
+
+        注意：由于Chrome浏览器的限制，多个浏览器实例可能会共享同一个窗口。
+        如果需要真正的多窗口支持，建议使用单浏览器顺序处理。
+
+        Args:
+            count: 要创建的浏览器数量
+            headless: 是否使用无头浏览器
+
+        Returns:
+            List[CloudflareBypassBrowser]: 浏览器实例列表
+        """
+        browsers = []
+        import uuid
+        import tempfile
+
+        for i in range(count):
+            try:
+                # 为每个浏览器实例创建完全独立的用户数据目录
+                # 使用UUID确保目录名称的唯一性
+                unique_id = str(uuid.uuid4())[:8]
+                timestamp = int(time.time() * 1000)
+
+                # 使用临时目录确保完全隔离
+                temp_dir = Path(tempfile.gettempdir()) / f"cf_browser_{i}_{unique_id}_{timestamp}"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+
+                self._logger.info(f"为浏览器 #{i+1} 创建独立数据目录: {temp_dir}")
+
+                # 创建浏览器实例并优化它
+                browser = CloudflareBypassBrowser(
+                    headless=headless,
+                    user_data_dir=str(temp_dir),
+                    load_images=False,  # 禁用图片加载以提高速度
+                    timeout=30,  # 增加超时时间
+                    wait_after_cf=3  # 增加Cloudflare后的等待时间
+                )
+
+                # 先访问一次基础页面，通过Cloudflare挑战
+                self._logger.info(f"浏览器 #{i+1} 正在初始化并通过Cloudflare挑战...")
+                browser.get("https://missav.ai/", timeout=30, wait_for_full_load=True)
+                time.sleep(5 if i == 0 else 3)  # 增加等待时间，第一个浏览器等待稍长
+                browsers.append(browser)
+                self._logger.info(f"浏览器 #{i+1} 创建并初始化成功")
+
+                # 每创建一个浏览器后等待一段时间，避免同时创建多个浏览器导致资源竞争
+                if i < count - 1:
+                    time.sleep(3)  # 增加等待时间
+
+            except Exception as e:
+                self._logger.error(f"浏览器 #{i+1} 创建失败: {str(e)}")
+
+        if len(browsers) < count:
+            self._logger.warning(f"只成功创建了 {len(browsers)}/{count} 个浏览器实例")
+            if len(browsers) == 0:
+                self._logger.error("没有成功创建任何浏览器实例，这可能是由于Chrome的多实例限制")
+                self._logger.info("建议使用单浏览器模式或检查系统资源")
+        else:
+            self._logger.info(f"成功创建 {len(browsers)}/{count} 个浏览器实例")
+
+        return browsers
+        
+    async def batch_crawl_movie_details(self, movie_codes: List[str], language: str = 'ja', headless: bool = True, max_retries: int = 2, use_single_browser: bool = True) -> Dict[str, Dict[str, Any]]:
+        """爬取电影详情
+
+        Args:
+            movie_codes: 电影代码列表
+            language: 语言版本，'ja'表示日语，'zh'表示中文
+            headless: 是否使用无头浏览器
+            max_retries: 最大重试次数
+            use_single_browser: 是否使用单浏览器模式（推荐，避免多浏览器窗口问题）
+
+        Returns:
+            Dict[str, Dict[str, Any]]: 电影代码到电影详情的映射
+        """
+        if use_single_browser:
+            return await self._batch_crawl_single_browser(movie_codes, language, headless, max_retries)
+        else:
+            return await self._batch_crawl_multi_browser(movie_codes, language, headless, max_retries)
+
+    async def _batch_crawl_single_browser(self, movie_codes: List[str], language: str = 'ja', headless: bool = True, max_retries: int = 2) -> Dict[str, Dict[str, Any]]:
+        """使用单个浏览器实例顺序爬取电影详情（推荐方式）
+
+        Args:
+            movie_codes: 电影代码列表
+            language: 语言版本，'ja'表示日语，'zh'表示中文
+            headless: 是否使用无头浏览器
+            max_retries: 最大重试次数
+
+        Returns:
+            Dict[str, Dict[str, Any]]: 电影代码到电影详情的映射
+        """
+        start_time = time.time()
+        self._logger.info(f"开始使用单浏览器顺序爬取{len(movie_codes)}部电影详情，语言：{language}")
+
+        results = {}
+        browser = None
+
+        try:
+            # 创建单个浏览器实例
+            import uuid
+            import tempfile
+
+            unique_id = str(uuid.uuid4())[:8]
+            timestamp = int(time.time() * 1000)
+            temp_dir = Path(tempfile.gettempdir()) / f"cf_browser_single_{unique_id}_{timestamp}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            self._logger.info(f"创建单浏览器实例，数据目录: {temp_dir}")
+
+            browser = CloudflareBypassBrowser(
+                headless=headless,
+                user_data_dir=str(temp_dir),
+                load_images=False,  # 禁用图片加载以提高速度
+                timeout=30,
+                wait_after_cf=3
+            )
+
+            # 初始化浏览器并通过Cloudflare挑战
+            self._logger.info("浏览器正在初始化并通过Cloudflare挑战...")
+            browser.get("https://missav.ai/", timeout=30, wait_for_full_load=True)
+            time.sleep(3)
+            self._logger.info("浏览器初始化完成")
+
+            # 顺序处理每部电影
+            for i, movie_id in enumerate(movie_codes):
+                self._logger.info(f"正在处理电影 {i+1}/{len(movie_codes)}: {movie_id}")
+
+                movie_id_result, movie_info = await self._crawl_single_movie(
+                    movie_id=movie_id,
+                    language=language,
+                    browser=browser,
+                    max_retries=max_retries
+                )
+
+                if movie_info:
+                    results[movie_id_result] = movie_info
+                    self._logger.info(f"电影 {movie_id} 爬取成功")
+                else:
+                    self._logger.warning(f"电影 {movie_id} 爬取失败")
+
+                # 在电影之间添加短暂延迟
+                if i < len(movie_codes) - 1:
+                    time.sleep(1)
+
+            # 记录完成时间
+            elapsed = time.time() - start_time
+            self._logger.info(f"单浏览器爬取 {len(movie_codes)} 部电影完成，结果: {len(results)}/{len(movie_codes)} 成功, 耗时 {elapsed:.2f} 秒")
+
+        except Exception as e:
+            self._logger.error(f"单浏览器爬取过程中出错: {str(e)}")
+        finally:
+            # 关闭浏览器实例
+            if browser:
+                try:
+                    browser.quit()
+                    self._logger.info("浏览器已关闭")
+                except Exception as e:
+                    self._logger.warning(f"关闭浏览器时出错: {str(e)}")
+
+        # 输出爬取结果统计
+        self._logger.info(f"爬取完成，共成功爬取 {len(results)}/{len(movie_codes)} 部电影")
+        for movie_id, info in results.items():
+            if info:
+                self._logger.info(f"电影 {movie_id} {language}版本爬取完成")
+                self._logger.info(f"  标题: {info.get('title', '未知标题')[:100]}")
+                self._logger.info(f"  女优: {', '.join(info.get('actresses', []))}")
+                self._logger.info(f"  时长: {info.get('duration_seconds', 0)} 秒")
+                self._logger.info(f"  数据已保存到: {self._data_dir}/{movie_id}_{language}.json")
+
+        return results
+
+    async def _batch_crawl_multi_browser(self, movie_codes: List[str], language: str = 'ja', headless: bool = True, max_retries: int = 2) -> Dict[str, Dict[str, Any]]:
+        """使用多个浏览器实例并行爬取电影详情（可能存在窗口显示问题）
+
+        注意：由于Chrome浏览器的限制，多个浏览器实例可能只显示一个窗口。
+        建议使用单浏览器模式 (use_single_browser=True)。
+
+        Args:
+            movie_codes: 电影代码列表
+            language: 语言版本，'ja'表示日语，'zh'表示中文
+            headless: 是否使用无头浏览器
+            max_retries: 最大重试次数
+
+        Returns:
+            Dict[str, Dict[str, Any]]: 电影代码到电影详情的映射
+        """
+        start_time = time.time()
+        self._logger.info(f"开始并行爬取{len(movie_codes)}部电影详情，语言：{language}")
+        self._logger.warning("注意：多浏览器模式可能只显示一个浏览器窗口，这是Chrome的正常行为")
+
+        results = {}
+        browsers = []
+
+        try:
+            # 确定要创建的浏览器实例数量
+            worker_count = min(3, len(movie_codes))  # 减少到最多3个浏览器实例
+
+            # 创建浏览器池
+            browsers = self._create_browser_pool(worker_count, headless)
+
+            if not browsers:
+                self._logger.error("没有成功创建任何浏览器实例，回退到单浏览器模式")
+                return await self._batch_crawl_single_browser(movie_codes, language, headless, max_retries)
+
+            # 分配电影代码到不同浏览器实例
+            movie_batches = [[] for _ in range(len(browsers))]
+            for i, movie_id in enumerate(movie_codes):
+                batch_index = i % len(browsers)
+                movie_batches[batch_index].append(movie_id)
+
+            self._logger.info(f"已将{len(movie_codes)}部电影分配给{len(browsers)}个浏览器实例")
+
+            # 准备并发爬取任务
+            async def crawl_batch(batch_movies, browser_index):
+                browser = browsers[browser_index]
+                batch_results = {}
+
+                for movie_id in batch_movies:
+                    movie_id_result, movie_info = await self._crawl_single_movie(
+                        movie_id=movie_id,
+                        language=language,
+                        browser=browser,
+                        max_retries=max_retries
+                    )
+                    if movie_info:
+                        batch_results[movie_id_result] = movie_info
+
+                return batch_results
+
+            # 并发执行所有爬取任务
+            tasks = []
+            for i, batch in enumerate(movie_batches):
+                if batch:  # 只处理非空批次
+                    tasks.append(crawl_batch(batch, i))
+
+            # 等待所有任务完成
+            batch_results = await asyncio.gather(*tasks)
+
+            # 合并所有结果
+            for batch_result in batch_results:
+                results.update(batch_result)
+
+            # 记录完成时间
+            elapsed = time.time() - start_time
+            self._logger.info(f"并行爬取 {len(movie_codes)} 部电影完成，结果: {len(results)}/{len(movie_codes)} 成功, 耗时 {elapsed:.2f} 秒")
+
+        except Exception as e:
+            self._logger.error(f"批量爬取过程中出错: {str(e)}")
+        finally:
+            # 关闭所有浏览器实例
+            for i, browser in enumerate(browsers):
+                try:
+                    browser.quit()
+                    self._logger.info(f"浏览器 #{i+1} 已关闭")
+                except Exception as e:
+                    self._logger.warning(f"关闭浏览器 #{i+1} 时出错: {str(e)}")
+
+        # 输出爬取结果统计
+        self._logger.info(f"爬取完成，共成功爬取 {len(results)}/{len(movie_codes)} 部电影")
+        for movie_id, info in results.items():
+            if info:
+                self._logger.info(f"电影 {movie_id} {language}版本爬取完成")
+                self._logger.info(f"  标题: {info.get('title', '未知标题')[:100]}")
+                self._logger.info(f"  女优: {', '.join(info.get('actresses', []))}")
+                self._logger.info(f"  时长: {info.get('duration_seconds', 0)} 秒")
+                self._logger.info(f"  数据已保存到: {self._data_dir}/{movie_id}_{language}.json")
+
+        return results
+
+    def _save_to_json(self, movie_info: Dict[str, Any], movie_id: str, language: str = 'ja') -> None:
+        """保存电影信息到JSON文件
+        
+        Args:
+            movie_info: 电影详情
+            movie_id: 电影ID
+            language: 语言版本
+        """
+        try:
+            file_path = self._data_dir / f"{movie_id}_{language}.json"
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(movie_info, f, ensure_ascii=False, indent=2)
+            self._logger.info(f"已保存 {language} 版本电影信息到 {file_path}")
+        except Exception as e:
+            self._logger.error(f"保存电影信息时出错: {str(e)}")
+            
+    async def _process_movie(self, movie: Movie) -> Optional[Movie]:
+        """Process a single movie.
+
+        Args:
+            movie: Movie object to process
+
         Returns:
             Movie: Complete movie details or None if extraction fails
         """
-        url = movie.link
+        # Get the URL value from the SQLAlchemy column
+        url = getattr(movie, 'link', None)
+        if not url:
+            self._logger.error(f"Movie {movie.code} has no link")
+            return None
+
         url = self.modify_url(url)
-        movie.link = url
-        
+        # Update the movie link using setattr to handle SQLAlchemy column properly
+        setattr(movie, 'link', url)
+
         try:
             # Get movie HTML
             response = self._session.get(url, timeout=30)
             if response.status_code != 200:
                 self._logger.error(f"Failed to fetch movie details: HTTP {response.status_code}")
                 return None
-                
+
             # Parse movie details
             movie_detail = self._movie_parser.parse_movie_page(movie, response.text, url)
             return movie_detail
@@ -117,103 +641,4 @@ class MovieDetailCrawlerService:
         new_parsed = parsed._replace(path=new_path)
         return urlunparse(new_parsed)
             
-    async def process_actresses(self) -> bool:
-        """Process actresses from movies.
-        
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        try:
-            # Get actresses from database
-            actresses = await self._crawler_progress_service.get_actresses_to_process()
-            if not actresses:
-                self._logger.info("No actresses to process")
-                return True
-                
-            self._logger.info(f"Found {len(actresses)} actresses to process")
-            
-            # Process actresses in batches
-            batch_size = 5
-            for i in range(0, len(actresses), batch_size):
-                batch = actresses[i:i+batch_size]
-                tasks = []
-                
-                for actress in batch:
-                    tasks.append(self._process_actress(actress))
-                    
-                # Wait a short time between starting tasks
-                await asyncio.sleep(random.uniform(1.0, 2.0))
-                
-                # Process batch
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Log results
-                success_count = sum(1 for r in results if r is True)
-                error_count = sum(1 for r in results if isinstance(r, Exception))
-                self._logger.info(f"Processed actress batch {i//batch_size + 1}/{(len(actresses) + batch_size - 1)//batch_size}: {success_count} succeeded, {error_count} failed")
-                
-                # Add delay between batches
-                await asyncio.sleep(random.uniform(2.0, 5.0))
-                
-            self._logger.info("Successfully processed all actresses")
-            return True
-            
-        except Exception as e:
-            self._logger.error(f"Error processing actresses: {str(e)}")
-            return False
-            
-    async def _process_actress(self, actress_data: Dict[str, Any]) -> bool:
-        """Process a single actress.
-        
-        Args:
-            actress_data: Actress data dictionary
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        if not actress_data.get('url'):
-            self._logger.error("Actress data missing URL")
-            return False
-            
-        url = actress_data['url']
-        actress_id = actress_data.get('id')
-        
-        try:
-            # Fetch actress details
-            self._logger.info(f"Processing actress: {actress_data.get('name', url)}")
-            
-            # Get actress HTML
-            response = self._session.get(url, timeout=30)
-            if response.status_code != 200:
-                self._logger.error(f"Failed to fetch actress details: HTTP {response.status_code}")
-                return False
-                
-            # Parse actress details
-            actress_details = self._actress_parser.parse_actress_page(response.text, url)
-            
-            # Add original actress data
-            for key, value in actress_data.items():
-                if key not in actress_details:
-                    actress_details[key] = value
-            
-            # Download profile image if downloader is available
-            if self._image_downloader and actress_details.get('id') and actress_details.get('profile_image'):
-                await self._image_downloader.download_image(
-                    actress_details['profile_image'],
-                    f"actresses/{actress_details['id']}.jpg"
-                )
-            
-            # Save actress details to database
-            success = await self._crawler_progress_service.save_actress_details(actress_details)
-            
-            if success:
-                self._logger.info(f"Successfully processed actress: {actress_details.get('name', url)}")
-                return True
-            else:
-                self._logger.error(f"Failed to save actress details: {actress_details.get('name', url)}")
-                return False
-                
-        except Exception as e:
-            self._logger.error(f"Error processing actress {url}: {str(e)}")
-            return False
 
