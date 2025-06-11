@@ -1,26 +1,24 @@
 """Detail crawler module for fetching movie details."""
 
-from ctypes import Array
 import logging
-import os
+import random
 import time
 import asyncio
-import random
 import json
+import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
-from bs4 import BeautifulSoup
-from ..utils.http import create_session
-from ..parsers.movie_parser import MovieParser
-from ..parsers.actress_parser import ActressParser
-from crawler.service.crawler_progress_service import CrawlerProgressService
-from fastapi import Depends
-from crawler.repository.movie_repository import MovieRepository
-from common.db.entity.movie import Movie, MovieStatus
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime
 from urllib.parse import urlparse, urlunparse
 
-# 导入CloudflareBypassBrowser类
+from fastapi import Depends
+
 from app.utils.drission_utils import CloudflareBypassBrowser
+from crawler.parser.movie_parser import MovieParser
+from crawler.parser.actress_parser import ActressParser
+from crawler.service.crawler_progress_service import CrawlerProgressService
+from crawler.repository.movie_repository import MovieRepository
+from common.db.entity.movie import Movie, MovieStatus
 
 class MovieDetailCrawlerService:
     """Crawler for fetching movie details."""
@@ -33,15 +31,13 @@ class MovieDetailCrawlerService:
 
         Args:
             crawler_progress_service: CrawlerProgressService instance for progress tracking
+            movie_repository: MovieRepository instance for database operations
         """
         self._logger = logging.getLogger(__name__)
         
-        # Create session with retry mechanism
-        self._session = create_session(use_proxy=True)
-        
         # 创建一个保存结果的目录
         self._data_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / "data"
-        self._data_dir.mkdir(exist_ok=True)
+        self._data_dir.mkdir(exist_ok=True, parents=True)
         
         # Initialize parsers
         self._movie_parser = MovieParser()
@@ -50,14 +46,9 @@ class MovieDetailCrawlerService:
         # Initialize retry counts
         self._retry_counts = {}
         
-        # Initialize image downloader
-        self._image_downloader = None
-
+        # Service dependencies
         self._crawler_progress_service = crawler_progress_service
         self._movie_repository = movie_repository
-        
-        # 用于Cloudflare绕过的电影解析器
-        self._movie_detail_parser = None
 
     # 单次执行的方法
     async def process_movies_details_once(self, limit: int = 100) -> List[Movie]:
@@ -136,7 +127,7 @@ class MovieDetailCrawlerService:
             try:
                 # 访问电影页面
                 browser.get(url, timeout=15, wait_for_full_load=False)
-                time.sleep(2.0)  # 给页面加载一些时间
+                await asyncio.sleep(2.0)  # 给页面加载一些时间
                 
                 # 改进的页面检测逻辑 - 更宽松的检查条件
                 check_script = """
@@ -208,7 +199,7 @@ class MovieDetailCrawlerService:
                 else:
                     # 多次检查页面状态，但减少检查次数和等待时间
                     for check in range(2):  # 减少到2次检查
-                        time.sleep(0.3)  # 减少等待时间
+                        await asyncio.sleep(0.3)  # 减少等待时间
                         page_status = safe_run_js(check_script)
                         if isinstance(page_status, dict) and page_status.get('status') == 'ready':
                             page_ready = True
@@ -229,7 +220,7 @@ class MovieDetailCrawlerService:
                     self._logger.error(f"无法获取HTML内容")
                     if attempt < max_retries:
                         self._logger.info(f"将重试获取HTML内容 ({attempt+1}/{max_retries})")
-                        time.sleep(1.0)
+                        await asyncio.sleep(1.0)
                         continue
                     return movie_id, None
 
@@ -246,13 +237,13 @@ class MovieDetailCrawlerService:
                     self._logger.error(f"电影 {movie_id} 解析失败，未获得有效数据")
                     if attempt < max_retries:
                         self._logger.info(f"将重试解析 ({attempt+1}/{max_retries})")
-                        time.sleep(1.0)
+                        await asyncio.sleep(1.0)
                         continue
                     return movie_id, None
 
                 # 提取流媒体URL - 修复正则表达式转义问题
-                stream_script = r"""
-                () => {
+                stream_script = """
+                function() {
                     const streamUrls = [];
                     const scripts = document.querySelectorAll('script');
                     for (const script of scripts) {
@@ -274,8 +265,8 @@ class MovieDetailCrawlerService:
                     self._logger.info(f"找到 {len(stream_urls)} 个流媒体URL")
 
                 # 保存电影信息到数据库 movie_info表
-                self._save_to_json(movie_info, movie_id, language)
-                self._save_to_db(movie_info, movie_id, language)
+                await self._save_to_json(movie_info, movie_id, language)
+                await self._save_to_db(movie_info, movie_id, language)
                 self._logger.info(f"电影 {movie_id} 爬取成功")
                 return movie_id, movie_info
                 
@@ -283,14 +274,14 @@ class MovieDetailCrawlerService:
                 self._logger.error(f"爬取电影 {movie_id} 出错: {str(e)}")
                 if attempt < max_retries:
                     self._logger.info(f"将在 2 秒后重试 ({attempt+1}/{max_retries})")
-                    time.sleep(2.0)
+                    await asyncio.sleep(2.0)
                 else:
                     self._logger.error(f"电影 {movie_id} 爬取失败，已达到最大重试次数")
                     return movie_id, None
         
         return movie_id, None
     
-    def _save_to_db(self, movie_info: Dict[str, Any], movie_id: str, language: str = 'ja') -> None:
+    async def _save_to_db(self, movie_info: Dict[str, Any], movie_id: str, language: str = 'ja') -> None:
         """保存电影信息到数据库
 
         Args:
@@ -298,14 +289,114 @@ class MovieDetailCrawlerService:
             movie_id: 电影ID
             language: 语言版本
         """
-        try:
-            # 保存到数据库的逻辑
-            # TODO: 保存到数据库
-            pass
-        except Exception as e:
-            self._logger.error(f"保存电影信息到数据库时出错: {str(e)}")
+        if not movie_info or not isinstance(movie_info, dict):
+            self._logger.error(f"电影 {movie_id} 信息无效，无法保存到数据库")
+            return
 
-    def _create_browser_pool(self, count: int, headless: bool = True) -> List[CloudflareBypassBrowser]:
+        try:
+            # 先检查电影是否已存在
+            movie = self._movie_repository.get_movie_by_code(movie_id)
+            if not movie:
+                self._logger.warning(f"电影 {movie_id} 在数据库中不存在，无法更新")
+                return
+
+            # 提取并转换电影信息
+            updates = {
+                'status': 'completed',  # 更新爬取状态
+                'updated_at': datetime.now()
+            }
+
+            # 常规字段映射
+            field_mapping = {
+                'title': 'title',
+                'cover_url': 'cover',
+                'thumbnail': 'thumbnail',
+                'description': 'description',
+                'duration_seconds': 'duration',
+                'release_date': 'release_date',
+                'producer': 'producer',
+                'director': 'director',
+                'studio': 'studio',
+                'label': 'label',
+                'series': 'series',
+                'rating': 'rating'
+            }
+
+            for db_field, info_field in field_mapping.items():
+                if info_field in movie_info and movie_info[info_field]:
+                    updates[db_field] = movie_info[info_field]
+
+            # 特殊字段处理
+            # 女演员列表
+            if 'actresses' in movie_info and isinstance(movie_info['actresses'], list):
+                updates['actresses'] = movie_info['actresses']
+
+            # 类别列表
+            if 'genres' in movie_info and isinstance(movie_info['genres'], list):
+                updates['genres'] = movie_info['genres']
+
+            # 标签列表
+            if 'tags' in movie_info and isinstance(movie_info['tags'], list):
+                updates['tags'] = movie_info['tags']
+
+            # 流媒体URL
+            if 'stream_url' in movie_info and movie_info['stream_url']:
+                updates['stream_url'] = movie_info['stream_url']
+            elif 'stream_urls' in movie_info and isinstance(movie_info['stream_urls'], list) and movie_info['stream_urls']:
+                updates['stream_url'] = movie_info['stream_urls'][0]  # 使用第一个URL
+
+            # 语言特定字段
+            if language:
+                # 例如，保存不同语言版本的标题
+                language_title_field = f'title_{language}'
+                if 'title' in movie_info and movie_info['title']:
+                    updates[language_title_field] = movie_info['title']
+
+                # 例如，保存不同语言版本的描述
+                language_desc_field = f'description_{language}'
+                if 'description' in movie_info and movie_info['description']:
+                    updates[language_desc_field] = movie_info['description']
+
+            # 将数据保存到数据库
+            # 使用数据实体的ID更新记录
+            updated = await self._movie_repository.update_movie(movie.id, updates)
+
+            if updated:
+                self._logger.info(f"电影 {movie_id} 信息已成功保存到数据库")
+
+                # 可选：更新关联记录，如女演员、类别等
+                if 'actresses' in movie_info and isinstance(movie_info['actresses'], list):
+                    await self._update_movie_actresses(movie.id, movie_info['actresses'])
+            else:
+                self._logger.warning(f"电影 {movie_id} 信息更新失败")
+
+        except Exception as e:
+            self._logger.error(f"保存电影 {movie_id} 信息到数据库时出错: {str(e)}")
+            import traceback
+            self._logger.error(traceback.format_exc())
+
+    async def _update_movie_actresses(self, movie_id: int, actresses: List[str]) -> None:
+        """更新电影的女演员关联
+
+        Args:
+            movie_id: 数据库中电影的ID
+            actresses: 女演员名称列表
+        """
+        try:
+            # 先检查所有女演员是否存在，不存在则创建
+            for actress_name in actresses:
+                # 调用仓库方法检查并创建女演员
+                await self._movie_repository.find_or_create_actress(actress_name)
+
+            # 更新电影与女演员的关联
+            await self._movie_repository.update_movie_actresses(movie_id, actresses)
+
+            self._logger.info(f"电影ID {movie_id} 的女演员关联已更新: {', '.join(actresses)}")
+        except Exception as e:
+            self._logger.error(f"更新电影ID {movie_id} 的女演员关联时出错: {str(e)}")
+
+
+    async def _create_browser_pool(self, count: int, headless: bool = True) -> List[CloudflareBypassBrowser]:
         """
         创建多个浏览器实例
 
@@ -348,13 +439,13 @@ class MovieDetailCrawlerService:
                 # 先访问一次基础页面，通过Cloudflare挑战
                 self._logger.info(f"浏览器 #{i+1} 正在初始化并通过Cloudflare挑战...")
                 browser.get("https://missav.ai/", timeout=30, wait_for_full_load=True)
-                time.sleep(5 if i == 0 else 3)  # 增加等待时间，第一个浏览器等待稍长
+                await asyncio.sleep(5 if i == 0 else 3)  # 增加等待时间，第一个浏览器等待稍长
                 browsers.append(browser)
                 self._logger.info(f"浏览器 #{i+1} 创建并初始化成功")
 
                 # 每创建一个浏览器后等待一段时间，避免同时创建多个浏览器导致资源竞争
                 if i < count - 1:
-                    time.sleep(3)  # 增加等待时间
+                    await asyncio.sleep(3)  # 增加等待时间
 
             except Exception as e:
                 self._logger.error(f"浏览器 #{i+1} 创建失败: {str(e)}")
@@ -450,7 +541,7 @@ class MovieDetailCrawlerService:
 
                 # 在电影之间添加短暂延迟
                 if i < len(movie_codes) - 1:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
 
             # 记录完成时间
             elapsed = time.time() - start_time
@@ -577,7 +668,7 @@ class MovieDetailCrawlerService:
 
         return results
 
-    def _save_to_json(self, movie_info: Dict[str, Any], movie_id: str, language: str = 'ja') -> None:
+    async def _save_to_json(self, movie_info: Dict[str, Any], movie_id: str, language: str = 'ja') -> None:
         """保存电影信息到JSON文件
         
         Args:
@@ -586,45 +677,70 @@ class MovieDetailCrawlerService:
             language: 语言版本
         """
         try:
-            file_path = self._data_dir / f"{movie_id}_{language}.json"
+            # 确保数据目录存在
+            data_dir = Path(self._data_dir)
+            data_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 构建保存路径
+            file_name = f"{movie_id}_{language}.json"
+            file_path = data_dir / file_name
+            
+            # 将电影信息保存为JSON
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(movie_info, f, ensure_ascii=False, indent=2)
-            self._logger.info(f"已保存 {language} 版本电影信息到 {file_path}")
+                json.dump(movie_info, f, ensure_ascii=False, indent=4)
+                
+            self._logger.info(f"电影 {movie_id} 的详情已保存到 {file_path}")
+            
         except Exception as e:
             self._logger.error(f"保存电影信息时出错: {str(e)}")
             
     async def _process_movie(self, movie: Movie) -> Optional[Movie]:
-        """Process a single movie.
+        """Process a single movie using browser to handle Cloudflare
 
         Args:
             movie: Movie object to process
 
         Returns:
-            Movie: Complete movie details or None if extraction fails
+            Movie: Updated movie object or None if extraction fails
         """
-        # Get the URL value from the SQLAlchemy column
-        url = getattr(movie, 'link', None)
-        if not url:
-            self._logger.error(f"Movie {movie.code} has no link")
+        # Get movie code and build URL
+        movie_code = getattr(movie, 'code', None)
+        if not movie_code:
+            self._logger.error(f"Movie has no code")
             return None
 
-        url = self.modify_url(url)
-        # Update the movie link using setattr to handle SQLAlchemy column properly
-        setattr(movie, 'link', url)
-
+        # 使用CloudflareBypassBrowser爬取电影详情
+        browser = None
         try:
-            # Get movie HTML
-            response = self._session.get(url, timeout=30)
-            if response.status_code != 200:
-                self._logger.error(f"Failed to fetch movie details: HTTP {response.status_code}")
+            # 创建浏览器实例
+            browser = CloudflareBypassBrowser(headless=True)
+            
+            # 爬取电影详情
+            movie_id, movie_info = await self._crawl_single_movie(movie_code, 'ja', browser, max_retries=2)
+            
+            if not movie_info:
+                self._logger.error(f"Failed to crawl movie details for {movie_code}")
                 return None
-
-            # Parse movie details
-            movie_detail = self._movie_parser.parse_movie_page(movie, response.text, url)
-            return movie_detail
+                
+            # 更新电影对象
+            await self._save_to_db(movie_info, movie_id, 'ja')
+            
+            # 标记为已处理
+            return movie
+            
         except Exception as e:
-            self._logger.error(f"Error processing movie {url}: {str(e)}")
+            self._logger.error(f"Error processing movie {movie_code}: {str(e)}")
             return None
+        finally:
+            if browser:
+                try:
+                    browser.quit()
+                except Exception as e:
+                    self._logger.error(f"Error closing browser: {str(e)}")
+                    try:
+                        browser.close()
+                    except:
+                        pass
 
     def modify_url(self, url: str) -> str:
         parsed = urlparse(url)
