@@ -117,25 +117,25 @@ async def get_movie_magnets(
         )
     return await services.magnet_service.get_by_movie_id(movie_id)
 
-@router.get("/{movie_id}/download-urls", response_model=List[DownloadUrlResponse])
+@router.get("/{movie_code}/download-urls", response_model=List[DownloadUrlResponse])
 async def get_movie_download_urls(
-    movie_id: int = Path(..., title="The ID of the movie"),
+    movie_code: str = Path(..., title="The code of the movie"),
     services: ServiceFactory = Depends(get_services)
 ):
     """
     Get all download URLs for a movie.
     """
-    movie = await services.movie_service.get_by_id(movie_id)
+    movie = await services.movie_service.get_by_code(movie_code)
     if not movie:
         raise HTTPException(
             status_code=404,
             detail="Movie not found"
         )
-    return await services.download_url_service.get_by_movie_id(movie_id)
+    return await services.download_url_service.get_by_movie_code(movie.code)
 
-@router.get("/{movie_id}/watch-urls", response_model=List[WatchUrlResponse])
+@router.get("/{movie_code}/watch-urls", response_model=List[WatchUrlResponse])
 async def get_movie_watch_urls(
-    movie_id: int = Path(..., title="The ID of the movie"),
+    movie_code: str = Path(..., title="The code of the movie"),
     services: ServiceFactory = Depends(get_services)
 ):
     """

@@ -114,3 +114,115 @@ class CrawlerService:
         """Update crawler progress status."""
         await self._crawler_progress_service.update_task_status(crawler_progress_id, status)
         self._logger.info(f"Updated task status to: {status}")
+        
+    async def get_by_id(self, crawler_id: int):
+        """Get crawler progress by ID.
+        
+        Args:
+            crawler_id: ID of the crawler progress
+            
+        Returns:
+            CrawlerProgressResponse: Crawler progress data
+        """
+        self._logger.info(f"Getting crawler progress with ID: {crawler_id}")
+        result = await self._crawler_progress_service._crawler_progress_repository.get_by_id(crawler_id)
+        if result is None:
+            return None
+        # Convert SQLAlchemy model to dict to avoid serialization issues
+        if hasattr(result, '__dict__'):
+            # Exclude SQLAlchemy internal attributes
+            return {k: v for k, v in result.__dict__.items() if not k.startswith('_')}
+        return result
+    
+    async def get_pages_progress(self, crawler_id: int):
+        """Get all pages progress for a crawler.
+        
+        Args:
+            crawler_id: ID of the crawler progress
+            
+        Returns:
+            List[PagesProgressResponse]: List of pages progress data
+        """
+        self._logger.info(f"Getting pages progress for crawler ID: {crawler_id}")
+        results = await self._crawler_progress_service._page_crawler_repository.get_pages_by_crawler_id(crawler_id)
+        # Convert SQLAlchemy models to dicts to avoid serialization issues
+        return [{
+            k: v for k, v in item.__dict__.items() 
+            if not k.startswith('_')
+        } for item in results] if results else []
+
+    async def update_status(self, crawler_id: int, status: str):
+        """Update crawler status.
+        
+        Args:
+            crawler_id: ID of the crawler progress
+            status: New status
+            
+        Returns:
+            CrawlerProgressResponse: Updated crawler progress data
+        """
+        self._logger.info(f"Updating crawler status: {status} for ID: {crawler_id}")
+        result = await self._crawler_progress_service.update_task_status(crawler_id, status)
+        if result is None:
+            return None
+        # Convert SQLAlchemy model to dict to avoid serialization issues
+        if hasattr(result, '__dict__'):
+            # Exclude SQLAlchemy internal attributes
+            return {k: v for k, v in result.__dict__.items() if not k.startswith('_')}
+        return result
+
+    async def update_progress(self, page_id: int, processed_items: int, status: str = None):
+        """Update page progress.
+        
+        Args:
+            page_id: ID of the page progress
+            processed_items: Number of processed items
+            status: New status (optional)
+            
+        Returns:
+            PagesProgressResponse: Updated page progress data
+        """
+        self._logger.info(f"Updating page progress: {processed_items} items for page ID: {page_id}")
+        result = await self._crawler_progress_service.update_page_progress(
+            page_progress_id=page_id, 
+            status=status, 
+            processed_items=processed_items
+        )
+        if result is None:
+            return None
+        # Convert SQLAlchemy model to dict to avoid serialization issues
+        if hasattr(result, '__dict__'):
+            # Exclude SQLAlchemy internal attributes
+            return {k: v for k, v in result.__dict__.items() if not k.startswith('_')}
+        return result
+        
+    async def create_page_progress(self, page_data: dict):
+        """Create a new page progress record.
+        
+        Args:
+            page_data: Dictionary containing page progress information
+            
+        Returns:
+            PagesProgress: Created page progress instance
+        """
+        self._logger.info(f"Creating page progress with data: {page_data}")
+        try:
+            result = await self._crawler_progress_service.create_genre_page_progress(
+                genre_id=page_data.get('genre_id'),
+                page=page_data.get('page_number', 1),
+                total_pages=page_data.get('total_pages', 1),
+                code=page_data.get('genre_code'),
+                status=page_data.get('status'),
+                total_items=page_data.get('total_items'),
+                task_id=page_data.get('crawler_progress_id')
+            )
+            if result is None:
+                return None
+            # Convert SQLAlchemy model to dict to avoid serialization issues
+            if hasattr(result, '__dict__'):
+                # Exclude SQLAlchemy internal attributes
+                return {k: v for k, v in result.__dict__.items() if not k.startswith('_')}
+            return result
+        except Exception as e:
+            self._logger.error(f"Error creating page progress: {str(e)}")
+            raise

@@ -35,7 +35,8 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
         try:
             movie_info = MovieInfo(**movie_info_data)
             self.db.add(movie_info)
-            await self.db.flush()
+            await self.db.commit() 
+            await self.db.refresh(movie_info)
             return movie_info
         except Exception as e:
             self._logger.error(f"Error creating movie info: {str(e)}")
@@ -79,7 +80,8 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
                 if hasattr(movie_info, key):
                     setattr(movie_info, key, value)
             
-            await self.db.flush()
+            await self.db.commit()
+            await self.db.refresh(movie_info)
             return movie_info
         except Exception as e:
             self._logger.error(f"Error updating movie info for code {movie_info_code}: {str(e)}")
@@ -106,7 +108,8 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
                 if hasattr(movie_info, key):
                     setattr(movie_info, key, value)
             
-            await self.db.flush()
+            await self.db.commit()
+            await self.db.refresh(movie_info)
             return movie_info
         except Exception as e:
             self._logger.error(f"Error updating movie info for code {code}: {str(e)}")
@@ -146,7 +149,8 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
                 movie_info = MovieInfo(**movie_data)
                 self.db.add(movie_info)
                 
-            await self.db.flush()
+            await self.db.commit()
+            await self.db.refresh(movie_info)
             return movie_info
         except Exception as e:
             self._logger.error(f"Error creating/updating movie info for code {code}: {str(e)}")
@@ -185,7 +189,8 @@ class MovieInfoRepository(BaseRepositoryAsync[MovieInfo, int]):
                 )
                 self.db.add(movie_title)
                 
-            await self.db.flush()
+            await self.db.commit()
+            await self.db.refresh(movie_title)
             return movie_title
         except Exception as e:
             self._logger.error(f"Error saving movie title for {movie_uuid}, language: {language}: {str(e)}")

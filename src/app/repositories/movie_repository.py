@@ -9,7 +9,7 @@ from common.db.entity.movie_genres import MovieGenre
 from common.db.entity.movie_info import MovieTitle
 from common.db.entity.actress import Actress, ActressName
 from common.db.entity.genre import Genre, GenreName
-from common.db.entity.download import Magnet, DownloadUrl, WatchUrl
+from common.db.entity.download import Magnet, WatchUrl
 from app.repositories.base_repository import BaseRepositoryAsync
 from app.config.database import get_db_session
 from fastapi import Depends
@@ -38,7 +38,7 @@ class MovieRepository(BaseRepositoryAsync[Movie, int]):
             title_query = select(MovieTitle).filter(MovieTitle.movie_id == movie.id)
             if language:
                 title_query = title_query.filter(MovieTitle.language == language)
-            title_result = await db.execute(title_query)
+            title_result = await self.db.execute(title_query)
             titles = title_result.scalars().all()
             result.append((movie, titles))
         
@@ -135,11 +135,6 @@ class MovieRepository(BaseRepositoryAsync[Movie, int]):
         magnet_result = await self.db.execute(magnet_query)
         magnets = magnet_result.scalars().all()
         
-        # 获取下载链接
-        download_query = select(DownloadUrl).filter(DownloadUrl.movie_id == movie_id).order_by(DownloadUrl.index)
-        download_result = await self.db.execute(download_query)
-        download_urls = download_result.scalars().all()
-        
         # 获取观看链接
         watch_query = select(WatchUrl).filter(WatchUrl.movie_id == movie_id).order_by(WatchUrl.index)
         watch_result = await self.db.execute(watch_query)
@@ -152,7 +147,6 @@ class MovieRepository(BaseRepositoryAsync[Movie, int]):
             "actresses": actresses,
             "genres": genres,
             "magnets": magnets,
-            "download_urls": download_urls,
             "watch_urls": watch_urls
         }
     

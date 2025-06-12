@@ -6,6 +6,7 @@ from fastapi import Depends
 from common.db.entity.movie import Movie
 from typing import List
 from crawler.repository.movie_repository import MovieRepository
+from crawler.repository.movie_info_repository import MovieInfoRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.database import get_db_session
 from crawler.service.movie_detail_crawler_service import MovieDetailCrawlerService
@@ -43,6 +44,8 @@ async def start_crawler():
             from crawler.service.movie_detail_crawler_service import MovieDetailCrawlerService
             from crawler.repository.movie_repository import MovieRepository
             from crawler.service.crawler_progress_service import CrawlerProgressService
+            from crawler.repository.movie_info_repository import MovieInfoRepository
+            from crawler.repository.download_url_repository import DownloadUrlRepository
             from app.repositories.genre_repository import GenreRepository
             from crawler.repository.page_crawler_repository import PageCrawlerRepository
             from crawler.repository.movie_crawler_repository import MovieCrawlerRepository
@@ -55,24 +58,21 @@ async def start_crawler():
                     async with async_session() as new_session:
                         try:
                             # 创建所需的仓库实例
-                            new_repository = MovieRepository(new_session)
+                            progress_service = CrawlerProgressService(new_session)
+                            movie_repo = MovieRepository(new_session)
+                            movie_info_repo = MovieInfoRepository(new_session)
+                            download_url_repo = DownloadUrlRepository(new_session)
                             genre_repository = GenreRepository(new_session)
                             page_crawler_repository = PageCrawlerRepository(new_session)
                             movie_crawler_repository = MovieCrawlerRepository(new_session)
                             crawler_progress_repository = CrawlerProgressRepository(new_session)
                             
-                            # 创建 CrawlerProgressService 实例
-                            crawler_progress_service = CrawlerProgressService(
-                                genre_repository=genre_repository,
-                                page_crawler_repository=page_crawler_repository,
-                                movie_crawler_repository=movie_crawler_repository,
-                                crawler_progress_repository=crawler_progress_repository
-                            )
-                            
                             # 创建 MovieDetailCrawlerService 实例
                             new_service = MovieDetailCrawlerService(
-                                crawler_progress_service=crawler_progress_service,
-                                movie_repository=new_repository
+                                progress_service,
+                                movie_info_repo,
+                                movie_repo,
+                                download_url_repo
                             )
                             
                             # 获取并处理电影详情
@@ -91,7 +91,7 @@ async def start_crawler():
                                     # 为每个电影创建一个新的事务
                                     try:
                                         # 尝试保存电影
-                                        await new_repository.saveOrUpdate([movie], new_session)
+                                        await movie_repo.saveOrUpdate([movie], new_session)
                                         # 立即提交这个电影的事务
                                         await new_session.commit()
                                         processed_count += 1

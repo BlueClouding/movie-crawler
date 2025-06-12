@@ -53,5 +53,21 @@ class ServiceFactory:
     @property
     def movie_detail_crawler_service(self) -> MovieDetailCrawlerService:
         if not self._movie_detail_crawler_service:
-            self._movie_detail_crawler_service = MovieDetailCrawlerService(self.db)
+            # Import repositories
+            from crawler.repository.movie_repository import MovieRepository
+            from crawler.repository.movie_info_repository import MovieInfoRepository
+            from crawler.repository.download_url_repository import DownloadUrlRepository
+            
+            # Create repository instances
+            movie_repo = MovieRepository(self.db)
+            movie_info_repo = MovieInfoRepository(self.db)
+            download_url_repo = DownloadUrlRepository(self.db)
+            
+            # Properly instantiate with all required repositories
+            self._movie_detail_crawler_service = MovieDetailCrawlerService(
+                self.crawler_progress_service,
+                movie_info_repo,
+                movie_repo,
+                download_url_repo
+            )
         return self._movie_detail_crawler_service
