@@ -12,7 +12,7 @@ from datetime import datetime
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import Depends
-from test.test_drission_movie import MovieDetailCrawler
+from src.test.test_drission_movie import MovieDetailCrawler
 
 from app.utils.drission_utils import CloudflareBypassBrowser
 from crawler.service.crawler_progress_service import CrawlerProgressService
@@ -159,9 +159,26 @@ class MovieDetailCrawlerService:
         # 实现重试逻辑
         for attempt in range(max_retries + 1):
             try:
-                # 访问电影页面
-                browser.get(url, timeout=15, wait_for_full_load=False)
-                await asyncio.sleep(2.0)  # 给页面加载一些时间
+                # 智能延迟：第一次尝试较短延迟，后续尝试增加延迟
+                if attempt > 0:
+                    delay = random.uniform(30, 60) * attempt  # 指数退避延迟
+                    self._logger.info(f"重试前等待 {delay:.1f} 秒 (尝试 {attempt + 1}/{max_retries + 1})")
+                    await asyncio.sleep(delay)
+                else:
+                    # 首次尝试也添加随机延迟避免检测
+                    initial_delay = random.uniform(5, 15)
+                    self._logger.info(f"初始延迟 {initial_delay:.1f} 秒以避免检测")
+                    await asyncio.sleep(initial_delay)
+
+                # 访问电影页面，使用更长的超时时间和Cloudflare等待
+                success = browser.get(url, wait_for_cf=True, timeout=180)
+                if not success:
+                    raise Exception("页面加载失败，可能被Cloudflare阻止")
+
+                # 页面加载后额外等待，确保内容完全渲染
+                post_load_delay = random.uniform(3, 8)
+                self._logger.info(f"页面加载完成，等待 {post_load_delay:.1f} 秒确保内容渲染")
+                await asyncio.sleep(post_load_delay)
 
                 # 改进的页面检测逻辑 - 更宽松的检查条件
                 check_script = """
@@ -299,7 +316,7 @@ class MovieDetailCrawlerService:
                     return movie_code, None
 
                 # 提取流媒体URL - 修复正则表达式转义问题
-                stream_script = """
+                stream_script = r"""
                 function() {
                     const streamUrls = [];
                     const scripts = document.querySelectorAll('script');
@@ -354,6 +371,7 @@ class MovieDetailCrawlerService:
             self._logger.error("电影 %s 信息无效，无法保存到数据库", movie_code)
             return
 
+        # 处理数据库操作的主要 try-except 块
         try:
             # 检查仓库类型
             repo_type = type(self._movie_info_repository).__name__
@@ -367,9 +385,9 @@ class MovieDetailCrawlerService:
                 )
                 return
 
-            # 配置异常处理
+            # 检查电影是否已存在
+            existing_movie_info = None
             try:
-                # 先检查电影是否已存在
                 existing_movie_info = (
                     await self._movie_info_repository.get_movie_info_by_code(movie_code)
                 )
@@ -387,34 +405,62 @@ class MovieDetailCrawlerService:
                     await self._movie_info_repository.db.rollback()
                 return
 
-            # 处理日期字段 - 如果 release_date 是字符串，转换为 datetime 对象
-            if (
-                "release_date" in movie_info
-                and movie_info["release_date"]
-                and isinstance(movie_info["release_date"], str)
-            ):
-                try:
-
-                    # 尝试解析日期格式 yyyy-mm-dd
-                    self._logger.info(
-                        "Converting date string: %s", movie_info["release_date"]
-                    )
-                    date_parts = movie_info["release_date"].split("-")
-                    if len(date_parts) == 3:
-                        year, month, day = map(int, date_parts)
-                        movie_info["release_date"] = datetime(year, month, day).date()
-                        self._logger.info(
-                            "Converted to date object: %s", movie_info["release_date"]
-                        )
-                    else:
-                        self._logger.warning(
-                            "Invalid date format: %s, setting to None",
-                            movie_info["release_date"],
-                        )
-                        movie_info["release_date"] = None
-                except Exception as date_error:
-                    self._logger.error("Error parsing date: %s", str(date_error))
+            # 处理日期字段 - 包括空字符串和无效格式
+            # 先处理release_date
+            if "release_date" in movie_info:
+                if movie_info["release_date"] == "" or movie_info["release_date"] is None:
                     movie_info["release_date"] = None
+                    self._logger.info("Empty release_date set to None")
+                elif isinstance(movie_info["release_date"], str):
+                    try:
+                        # 尝试解析日期格式 yyyy-mm-dd
+                        self._logger.info(
+                            "Converting date string: %s", movie_info["release_date"]
+                        )
+                        date_parts = movie_info["release_date"].split("-")
+                        if len(date_parts) == 3:
+                            year, month, day = map(int, date_parts)
+                            movie_info["release_date"] = datetime(year, month, day).date()
+                            self._logger.info(
+                                "Converted to date object: %s", movie_info["release_date"]
+                            )
+                        else:
+                            self._logger.warning(
+                                "Invalid date format: %s, setting to None",
+                                movie_info["release_date"],
+                            )
+                            movie_info["release_date"] = None
+                    except Exception as date_error:
+                        self._logger.error("Error parsing date: %s", str(date_error))
+                        movie_info["release_date"] = None
+
+            # 处理website_date字段，使用与 release_date 相同的逻辑
+            if "website_date" in movie_info:
+                if movie_info["website_date"] == "" or movie_info["website_date"] is None:
+                    movie_info["website_date"] = None
+                    self._logger.info("Empty website_date set to None")
+                elif isinstance(movie_info["website_date"], str):
+                    try:
+                        # 尝试解析日期格式 yyyy-mm-dd
+                        self._logger.info(
+                            "Converting website date string: %s", movie_info["website_date"]
+                        )
+                        date_parts = movie_info["website_date"].split("-")
+                        if len(date_parts) == 3:
+                            year, month, day = map(int, date_parts)
+                            movie_info["website_date"] = datetime(year, month, day).date()
+                            self._logger.info(
+                                "Converted website_date to date object: %s", movie_info["website_date"]
+                            )
+                        else:
+                            self._logger.warning(
+                                "Invalid website_date format: %s, setting to None",
+                                movie_info["website_date"],
+                            )
+                            movie_info["website_date"] = None
+                    except Exception as date_error:
+                        self._logger.error("Error parsing website_date: %s", str(date_error))
+                        movie_info["website_date"] = None
 
             if not existing_movie_info:
                 # Prepare data for creating a new movie info entry
@@ -428,15 +474,17 @@ class MovieDetailCrawlerService:
                     "director": movie_info.get("director", ""),
                     "maker": movie_info.get("maker", ""),
                     "actresses": movie_info.get("actresses", []),
-                    "release_date": movie_info.get("release_date", None),
-                    "website_date": movie_info.get("website_date", None),
+                    "release_date": movie_info.get("release_date", None),  # 已在上面处理过空字符串
+                    "website_date": movie_info.get("website_date", None),  # 已在上面处理过空字符串
                     "duration": movie_info.get("duration_seconds", None),
                     "cover_url": movie_info.get("cover_url", ""),
                     "series": movie_info.get("series", ""),
                     "label": movie_info.get("label", ""),
-                    "m3u8_info": movie_info.get("m3u8_urls", {}),
+                    "m3u8_info": movie_info.get("m3u8_urls", []),
                     "source": "missav",
                 }
+                
+                # 创建新电影信息记录
                 await self._movie_info_repository.create_movie_info(movie_data)
 
                 # 保存磁力链接
@@ -531,7 +579,7 @@ class MovieDetailCrawlerService:
         保存电影磁力链接
 
         Args:
-            movie_code: 电影代码
+            movie_code: 从link字段提取的电影代码，如从'v/snis-264-uncensored-leaked'提取'snis-264-uncensored-leaked'
             magnets: 磁力链接列表
         """
         try:
@@ -696,8 +744,8 @@ class MovieDetailCrawlerService:
                 headless=headless,
                 user_data_dir=str(temp_dir),
                 load_images=False,  # 禁用图片加载以提高速度
-                timeout=30,
-                wait_after_cf=3,
+                timeout=180,  # 增加超时时间以应对严格的Cloudflare检测
+                wait_after_cf=10,  # 增加Cloudflare挑战后的等待时间
             )
 
             # 初始化浏览器并通过Cloudflare挑战
@@ -725,9 +773,11 @@ class MovieDetailCrawlerService:
                 else:
                     self._logger.warning("电影 %s 爬取失败", movie_code)
 
-                # 在电影之间添加短暂延迟
+                # 在电影之间添加较长延迟以避免Cloudflare检测
                 if i < len(movie_codes) - 1:
-                    await asyncio.sleep(1)
+                    inter_movie_delay = random.uniform(30, 60)  # 30-60秒间隔
+                    self._logger.info(f"等待 {inter_movie_delay:.1f} 秒后处理下一部电影")
+                    await asyncio.sleep(inter_movie_delay)
 
             # 记录完成时间
             elapsed = time.time() - start_time
@@ -809,7 +859,7 @@ class MovieDetailCrawlerService:
             worker_count = min(3, len(movie_codes))  # 减少到最多3个浏览器实例
 
             # 创建浏览器池
-            browsers = self._create_browser_pool(worker_count, headless)
+            browsers = await self._create_browser_pool(worker_count, headless)
 
             if not browsers:
                 self._logger.error("没有成功创建任何浏览器实例，回退到单浏览器模式")

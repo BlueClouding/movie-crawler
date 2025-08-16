@@ -25,8 +25,14 @@ class MovieService(BaseService[Movie]):
     async def get_by_code(
         self, code: str, language: str
     ) -> Optional[MovieDetailResponse]:
-        # 获取电影基本信息
-        movie_query = select(Movie).where(Movie.code == code)
+        """根据从link字段提取的电影代码获取电影详情
+        
+        Args:
+            code: 从link字段提取的电影代码，如从'v/snis-264-uncensored-leaked'提取'snis-264-uncensored-leaked'
+            language: 语言代码
+        """
+        # 获取电影基本信息（基于link字段末尾匹配）
+        movie_query = select(Movie).where(Movie.link.like(f'%/{code}'))
         movie_result = await self.db.execute(movie_query)
         movie = movie_result.scalar_one_or_none()
 
@@ -83,7 +89,7 @@ class MovieService(BaseService[Movie]):
         # 获取下载链接 - 明确指定要查询的列
         download_query = (
             select(DownloadUrl.id, DownloadUrl.code, DownloadUrl.magnets)
-            .where(DownloadUrl.code == movie.code)
+            .where(DownloadUrl.code == code)
             .order_by(DownloadUrl.id)
         )
         download_result = await self.db.execute(download_query)
@@ -99,7 +105,7 @@ class MovieService(BaseService[Movie]):
             Magnet.name,
             Magnet.size,
             Magnet.created_date,
-        ).where(Magnet.code == movie.code)
+        ).where(Magnet.code == code)
         magnet_result = await self.db.execute(magnet_query)
         magnets = [
             dict(zip(["id", "code", "url", "name", "size", "created_date"], row))
@@ -111,7 +117,7 @@ class MovieService(BaseService[Movie]):
             select(
                 WatchUrl.id, WatchUrl.code, WatchUrl.url, WatchUrl.name, WatchUrl.index
             )
-            .where(WatchUrl.code == movie.code)
+            .where(WatchUrl.code == code)
             .order_by(WatchUrl.index)
         )
         watch_result = await self.db.execute(watch_query)

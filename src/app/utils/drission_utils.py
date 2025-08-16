@@ -26,7 +26,7 @@ class CloudflareBypassBrowser:
         user_data_dir: Optional[str] = None,
         proxy: Optional[str] = None,
         load_images: bool = True,
-        timeout: int = 30,
+        timeout: int = 60,
         wait_after_cf: int = 5
     ):
         """
@@ -60,8 +60,9 @@ class CloudflareBypassBrowser:
             co = ChromiumOptions()
             
             # 配置显示模式（headless）
-            # DrissionPage 中使用 headless 参数而不是 visible
-            co.headless = self.headless
+            # DrissionPage 中使用 headless() 方法设置无头模式
+            if self.headless:
+                co.headless()  # 启用无头模式
             
             # 用户数据目录配置
             if self.user_data_dir:
@@ -331,6 +332,32 @@ class CloudflareBypassBrowser:
                     logger.warning("遇到Cloudflare挑战，但未设置等待")
                     return False
             
+            # 页面加载完成后，添加随机延迟模拟人类浏览行为
+            if not self._cf_challenge_solved:
+                # 首次访问时添加更长的随机延迟
+                browse_delay = random.uniform(2.0, 5.0)
+                logger.debug(f"首次访问，模拟浏览行为等待 {browse_delay:.1f} 秒")
+                time.sleep(browse_delay)
+            else:
+                # 已通过挑战的页面，添加较短的随机延迟
+                browse_delay = random.uniform(1.0, 3.0)
+                logger.debug(f"已通过挑战，快速浏览等待 {browse_delay:.1f} 秒")
+                time.sleep(browse_delay)
+            
+            # 30%概率执行额外的人类行为模拟
+            if random.random() < 0.3:
+                logger.debug("执行额外的人类行为模拟")
+                try:
+                    # 简化版的人类行为模拟，避免过度延迟
+                    scroll_action = random.choice([
+                        "window.scrollBy(0, Math.random() * 100);",
+                        "window.scrollTo(0, Math.random() * 200);"
+                    ])
+                    self.page.run_js(scroll_action)
+                    time.sleep(random.uniform(0.5, 1.5))
+                except Exception as e:
+                    logger.debug(f"额外行为模拟失败: {e}")
+            
             # 检查页面内容是否正常加载
             html = self.get_html()
             if html and len(html) > 100:  # 降低判断标准，只要有一些内容就认为成功
@@ -416,7 +443,7 @@ class CloudflareBypassBrowser:
             logger.warning(f"检查 Cloudflare 挑战时出错: {e}")
             return False
     
-    def _wait_for_cloudflare_challenge(self, max_wait: int = 20):
+    def _wait_for_cloudflare_challenge(self, max_wait: int = 60):
         """
         等待 Cloudflare 挑战完成
 
@@ -426,27 +453,291 @@ class CloudflareBypassBrowser:
         Returns:
             bool: 是否成功通过挑战
         """
+        import random
+        
         start_time = time.time()
+        check_count = 0
+        
+        logger.info(f"开始等待 Cloudflare 挑战，最大等待时间: {max_wait}秒")
+        
         while time.time() - start_time < max_wait:
+            check_count += 1
+            
             if not self._is_cloudflare_challenge():
-                logger.info("Cloudflare 挑战已通过")
+                logger.info(f"Cloudflare 挑战已通过 (检查次数: {check_count})")
                 self._cf_challenge_solved = True
                 # 添加额外等待时间，确保页面完全加载
                 logger.info(f"等待额外的 {self.wait_after_cf} 秒以确保内容加载完全")
                 time.sleep(self.wait_after_cf)
                 return True
-            logger.info("等待 Cloudflare 挑战通过...")
-            time.sleep(2)
+            
+            elapsed = int(time.time() - start_time)
+            logger.info(f"等待 Cloudflare 挑战通过... (已等待: {elapsed}s/{max_wait}s, 检查次数: {check_count})")
+            
+            # 添加随机延迟，模拟人类行为
+            base_wait = 2
+            random_delay = random.uniform(0.5, 1.5)
+            actual_wait = base_wait + random_delay
+            
+            # 20%概率添加额外的"阅读"延迟，模拟人类阅读行为
+            if random.random() < 0.2:
+                reading_delay = random.uniform(3, 8)
+                logger.debug(f"模拟阅读行为，额外等待 {reading_delay:.1f} 秒")
+                actual_wait += reading_delay
+            
+            time.sleep(actual_wait)
         
-        # 挑战超时，尝试强制刷新页面
-        logger.warning("Cloudflare 挑战等待超时，尝试强制刷新页面")
-        try:
-            self.page.run_js("location.reload(true);")
-            time.sleep(5)  # 给页面一些加载时间
-        except Exception as e:
-            logger.error(f"刷新页面出错: {e}")
+        # 挑战超时，尝试多级重试
+        logger.warning(f"Cloudflare 挑战等待超时 ({max_wait}秒)，开始重试机制")
+        return self._retry_cloudflare_challenge()
+    
+    def _retry_cloudflare_challenge(self, max_retries: int = 5) -> bool:
+        """
+        多级重试机制处理 Cloudflare 挑战
+        基于成功案例优化的重试策略
         
+        Args:
+            max_retries: 最大重试次数，默认5次
+            
+        Returns:
+            bool: 是否成功通过挑战
+        """
+        import random
+        
+        for retry_count in range(max_retries):
+            logger.info(f"开始第 {retry_count + 1}/{max_retries} 次重试")
+            
+            try:
+                # 策略1: 温和刷新页面
+                if retry_count == 0:
+                    logger.info("重试策略1: 温和刷新页面")
+                    self.page.run_js("location.reload();")
+                    wait_time = random.uniform(10, 15)
+                    logger.info(f"等待页面加载 {wait_time:.1f} 秒")
+                    time.sleep(wait_time)
+                    
+                # 策略2: 强制刷新页面
+                elif retry_count == 1:
+                    logger.info("重试策略2: 强制刷新页面")
+                    self.page.run_js("location.reload(true);")
+                    wait_time = random.uniform(12, 18)
+                    logger.info(f"等待页面强制加载 {wait_time:.1f} 秒")
+                    time.sleep(wait_time)
+                    
+                # 策略3: 清除缓存并刷新
+                elif retry_count == 2:
+                    logger.info("重试策略3: 清除缓存并刷新")
+                    self.page.run_js("""
+                        // 清除本地存储
+                        try {
+                            localStorage.clear();
+                            sessionStorage.clear();
+                        } catch(e) {
+                            console.log('清除存储失败:', e);
+                        }
+                        // 强制刷新
+                        location.reload(true);
+                    """)
+                    wait_time = random.uniform(15, 20)
+                    logger.info(f"等待页面重新加载 {wait_time:.1f} 秒")
+                    time.sleep(wait_time)
+                    
+                # 策略4: 模拟用户交互后刷新
+                elif retry_count == 3:
+                    logger.info("重试策略4: 模拟用户交互后刷新")
+                    # 模拟人类行为
+                    self._simulate_human_behavior()
+                    # 刷新页面
+                    self.page.run_js("location.reload(true);")
+                    wait_time = random.uniform(18, 25)
+                    logger.info(f"等待页面加载 {wait_time:.1f} 秒")
+                    time.sleep(wait_time)
+                    
+                # 策略5: 浏览器重启（最后手段）
+                else:
+                    logger.info("重试策略5: 浏览器重启（最后手段）")
+                    if self._restart_browser():
+                        wait_time = random.uniform(20, 30)
+                        logger.info(f"浏览器重启成功，等待 {wait_time:.1f} 秒")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error("浏览器重启失败")
+                        continue
+                
+                # 检查是否通过挑战
+                if not self._is_cloudflare_challenge():
+                    logger.info(f"✅ 重试成功！第 {retry_count + 1} 次重试通过 Cloudflare 挑战")
+                    self._cf_challenge_solved = True
+                    # 成功后额外等待，确保页面完全加载
+                    time.sleep(self.wait_after_cf)
+                    return True
+                else:
+                    logger.warning(f"❌ 第 {retry_count + 1} 次重试失败，仍然检测到 Cloudflare 挑战")
+                    
+            except Exception as e:
+                logger.error(f"第 {retry_count + 1} 次重试过程中出错: {e}")
+                # 如果是严重错误，尝试重启浏览器
+                if "disconnected" in str(e).lower() or "session" in str(e).lower():
+                    logger.warning("检测到浏览器连接问题，尝试重启")
+                    self._restart_browser()
+                
+            # 重试间隔（递增延迟）
+            if retry_count < max_retries - 1:
+                base_interval = 5 + retry_count * 2  # 递增延迟
+                interval = random.uniform(base_interval, base_interval + 5)
+                logger.info(f"等待 {interval:.1f} 秒后进行下一次重试")
+                time.sleep(interval)
+        
+        logger.error(f"❌ 所有 {max_retries} 次重试尝试均失败，无法通过 Cloudflare 挑战")
         return False
+    
+    def _simulate_human_behavior(self):
+        """
+        模拟人类行为，增加通过 Cloudflare 挑战的成功率
+        增强版随机延迟和行为模拟
+        """
+        import random
+        
+        try:
+            logger.debug("开始模拟人类行为")
+            
+            # 1. 随机滚动页面（增加更多变化）
+            scroll_actions = [
+                "window.scrollTo(0, Math.random() * 300);",
+                "window.scrollBy(0, Math.random() * 200 - 100);",
+                "window.scrollTo(0, document.body.scrollHeight * Math.random());",
+                "window.scrollTo({top: Math.random() * 500, behavior: 'smooth'});",
+                "window.scrollBy({top: Math.random() * 150 - 75, behavior: 'smooth'});"
+            ]
+            self.page.run_js(random.choice(scroll_actions))
+            # 滚动后随机等待，模拟用户观察内容
+            scroll_wait = random.uniform(0.8, 2.5)
+            logger.debug(f"滚动后等待 {scroll_wait:.1f} 秒")
+            time.sleep(scroll_wait)
+            
+            # 2. 模拟鼠标移动（增加更自然的移动模式）
+            mouse_moves = random.randint(2, 5)  # 随机移动次数
+            self.page.run_js(f"""
+                for(let i = 0; i < {mouse_moves}; i++) {{
+                    setTimeout(() => {{
+                        // 更自然的鼠标移动轨迹
+                        const x = Math.random() * window.innerWidth;
+                        const y = Math.random() * window.innerHeight;
+                        document.dispatchEvent(new MouseEvent('mousemove', {{
+                            clientX: x,
+                            clientY: y,
+                            bubbles: true
+                        }}));
+                        
+                        // 偶尔触发hover事件
+                        if (Math.random() < 0.3) {{
+                            const element = document.elementFromPoint(x, y);
+                            if (element) {{
+                                element.dispatchEvent(new MouseEvent('mouseenter', {{
+                                    bubbles: true
+                                }}));
+                            }}
+                        }}
+                    }}, i * (150 + Math.random() * 100));
+                }}
+            """)
+            mouse_wait = random.uniform(1.2, 3.0)
+            logger.debug(f"鼠标移动后等待 {mouse_wait:.1f} 秒")
+            time.sleep(mouse_wait)
+            
+            # 3. 模拟键盘事件（增加多种按键）
+            keys = ['Tab', 'ArrowDown', 'ArrowUp', 'Space']
+            selected_key = random.choice(keys)
+            self.page.run_js(f"""
+                document.dispatchEvent(new KeyboardEvent('keydown', {{
+                    key: '{selected_key}',
+                    bubbles: true
+                }}));
+            """)
+            key_wait = random.uniform(0.5, 1.2)
+            logger.debug(f"按键 {selected_key} 后等待 {key_wait:.1f} 秒")
+            time.sleep(key_wait)
+            
+            # 4. 模拟点击事件（在安全区域，增加多次点击）
+            click_count = random.randint(1, 3)
+            for i in range(click_count):
+                self.page.run_js("""
+                    const safeX = window.innerWidth * 0.1 + Math.random() * window.innerWidth * 0.8;
+                    const safeY = window.innerHeight * 0.1 + Math.random() * window.innerHeight * 0.8;
+                    document.dispatchEvent(new MouseEvent('click', {
+                        clientX: safeX,
+                        clientY: safeY,
+                        bubbles: true
+                    }));
+                """)
+                if i < click_count - 1:  # 不是最后一次点击
+                    click_interval = random.uniform(0.8, 2.0)
+                    logger.debug(f"点击间隔等待 {click_interval:.1f} 秒")
+                    time.sleep(click_interval)
+            
+            # 5. 最终等待，模拟用户思考时间
+            final_wait = random.uniform(1.0, 3.5)
+            logger.debug(f"人类行为模拟完成，最终等待 {final_wait:.1f} 秒")
+            time.sleep(final_wait)
+            
+        except Exception as e:
+            logger.warning(f"模拟人类行为时出错: {e}")
+    
+    def _restart_browser(self) -> bool:
+        """
+        重启浏览器实例
+        
+        Returns:
+            bool: 重启是否成功
+        """
+        try:
+            logger.info("正在重启浏览器...")
+            
+            # 保存当前URL
+            current_url = None
+            if self.page:
+                try:
+                    current_url = self.page.url
+                except:
+                    pass
+            
+            # 关闭当前浏览器
+            if self.browser:
+                try:
+                    self.browser.quit()
+                except:
+                    pass
+            
+            # 重置状态
+            self.browser = None
+            self.page = None
+            self._cf_challenge_solved = False
+            
+            # 短暂等待
+            time.sleep(random.uniform(2, 4))
+            
+            # 重新初始化浏览器
+            self._init_browser()
+            
+            if not self.browser or not self.page:
+                logger.error("浏览器重启失败：无法创建新实例")
+                return False
+            
+            # 如果有之前的URL，尝试重新访问
+            if current_url and current_url != "data:,":
+                try:
+                    logger.info(f"重新访问页面: {current_url}")
+                    self.page.get(current_url, timeout=self.timeout)
+                    time.sleep(random.uniform(3, 6))
+                except Exception as e:
+                    logger.warning(f"重新访问页面失败: {e}")
+            
+            logger.info("✅ 浏览器重启成功")
+            return True
+            
+        except Exception as e:
+            logger.error(f"浏览器重启过程中出错: {e}")
+            return False
     
     def get_html(self):
         """

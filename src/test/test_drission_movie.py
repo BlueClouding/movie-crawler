@@ -292,10 +292,11 @@ class MovieDetailCrawler:
         scripts = soup.select("script")
 
         # 正则表达式模式，匹配加密的JavaScript代码
+        # 改进后的正则表达式，使用 ['"] 匹配单引号或双引号
         pattern = re.compile(
-            r"eval\(function\(p,a,c,k,e,d\)\{(.+?)\}\('(.+?)',([0-9]+),([0-9]+),'(.+?)'\.((?:split\('\|'\))|(?:split\('\|'\),0,\{\}))\)"
-        )
-
+            r"eval\(function\(p,a,c,k,e,d\)\{(.+?)\}\(['\"](.+?)['\"],([0-9]+),([0-9]+),['\"](.+?)['\"]\."
+            r"((?:split\(['\"]\|['\"]\))|(?:split\(['\"]\|['\"]\),0,\{\}))\)"
+)
         for script in scripts:
             script_content = script.string
             if script_content and "eval(function(p,a,c,k,e,d)" in script_content:
@@ -392,17 +393,13 @@ class MovieDetailCrawler:
                 logger.error(f"HTML内容长度不足: {len(html) if html else 0}")
                 return result
 
-            # 验证HTML是否包含电影ID
-            if self.movie_code.upper() not in html.upper():
-                logger.error(f"HTML内容不包含电影ID: {self.movie_code}")
-                return result
+            # # 验证HTML是否包含电影ID
+            # if self.movie_code.upper() not in html.upper():
+            #     logger.error(f"HTML内容不包含电影ID: {self.movie_code}")
+            #     return result
 
             # 验证不是首页
-            if "MissAV | オンラインで無料" in html and not re.search(
-                r"<h1[^>]*>[^<]*" + re.escape(self.movie_code) + r"[^<]*</h1>",
-                html,
-                re.IGNORECASE,
-            ):
+            if "任意の検索" in html:
                 logger.error(f"HTML内容可能是网站首页")
                 return result
 

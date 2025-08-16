@@ -40,10 +40,10 @@ class DownloadUrlRepository:
     
     async def get_download_url_by_code(self, code: str) -> Optional[DownloadUrl]:
         """
-        根据电影代码获取下载链接
+        根据从link字段提取的电影代码获取下载链接
         
         Args:
-            code: 电影代码
+            code: 从link字段提取的电影代码，如从'v/snis-264-uncensored-leaked'提取'snis-264-uncensored-leaked'
             
         Returns:
             下载链接记录，如果不存在则为None
@@ -61,7 +61,7 @@ class DownloadUrlRepository:
         更新下载链接
         
         Args:
-            code: 电影代码
+            code: 从link字段提取的电影代码，如从'v/snis-264-uncensored-leaked'提取'snis-264-uncensored-leaked'
             magnets: 磁力链接
             
         Returns:
@@ -91,7 +91,7 @@ class DownloadUrlRepository:
         删除下载链接
         
         Args:
-            code: 电影代码
+            code: 从link字段提取的电影代码，如从'v/snis-264-uncensored-leaked'提取'snis-264-uncensored-leaked'
             
         Returns:
             是否成功删除
