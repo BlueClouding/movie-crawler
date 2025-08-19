@@ -1,0 +1,33 @@
+# Feed Service Python化所需依赖包
+
+# Web框架
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic>=2.7.0
+
+# HTTP请求
+requests==2.31.0
+
+# HTML解析
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# 浏览器自动化
+playwright==1.40.0
+
+# 数据处理
+dataclasses-json==0.6.1
+
+# 日志和工具
+loguru==0.7.2
+
+# 开发和测试
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# 类型检查
+mypy==1.7.1
+
+# 代码格式化
+black==23.11.0
+flake8==6.1.0

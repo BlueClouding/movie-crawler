@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M3U8视频播放器</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .input-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 5px solid #007bff;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.25);
+        }
+        
+        .btn {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+            margin-right: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(40,167,69,0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(45deg, #6c757d, #495057);
+        }
+        
+        .btn-secondary:hover {
+            box-shadow: 0 5px 15px rgba(108,117,125,0.4);
+        }
+        
+        .video-container {
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        #videoPlayer {
+            width: 100%;
+            max-width: 800px;
+            height: 450px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        }
+        
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        
+        .info-box h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.info {
+            background: #cce7ff;
+            color: #004085;
+            border: 1px solid #b3d7ff;
+        }
+        
+        .preset-links {
+            margin-top: 20px;
+        }
+        
+        .preset-link {
+            display: inline-block;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 8px 12px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+        
+        .preset-link:hover {
+            background: #007bff;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 M3U8视频播放器</h1>
+            <p>支持HLS流媒体播放，自动处理跨域和防盗链</p>
+        </div>
+        
+        <div class="content">
+            <div class="input-section">
+                <div class="input-group">
+                    <label for="m3u8Url">M3U8视频链接:</label>
+                    <input type="text" id="m3u8Url" placeholder="请输入M3U8链接..." 
+                           value="https://faf8b60b.freshvibe64.store/blah3/XEn0ezAekFvTgxX3A7ZKZY_9hxR3jYNOCqeLthCPgxdQyIZi/video.m3u8">
+                </div>
+                
+                <div class="input-group">
+                    <label for="refererUrl">Referer (防盗链):</label>
+                    <input type="text" id="refererUrl" placeholder="请输入Referer URL..." 
+                           value="https://surrit.store/">
+                </div>
+                
+                <div class="input-group">
+                    <label>
+                        <input type="checkbox" id="useProxy" checked> 使用代理服务器 (推荐)
+                    </label>
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        ✅ 自动解决跨域问题和Referer设置
+                    </small>
+                </div>
+                
+                <button class="btn" onclick="loadVideo()">🎥 加载视频</button>
+                <button class="btn btn-secondary" onclick="clearVideo()">🗑️ 清除</button>
+                <button class="btn btn-secondary" onclick="testConnection()">🔍 测试连接</button>
+                <button class="btn btn-secondary" onclick="openProxy()">🔄 代理服务器</button>
+                <button class="btn btn-secondary" onclick="debugConnection()">🔧 调试信息</button>
+            </div>
+            
+            <div class="info-box">
+                <h3>📋 使用说明</h3>
+                <ul>
+                    <li><strong>M3U8链接:</strong> 输入要播放的HLS视频流链接</li>
+                    <li><strong>Referer:</strong> 设置防盗链来源，通常是视频网站的域名</li>
+                    <li><strong>自动处理:</strong> 播放器会自动处理跨域和请求头设置</li>
+                    <li><strong>兼容性:</strong> 支持现代浏览器的HLS播放</li>
+                </ul>
+            </div>
+            
+            <div id="statusMessage"></div>
+            
+            <div class="video-container">
+                <video id="videoPlayer" controls preload="none" poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='450' viewBox='0 0 800 450'%3E%3Crect width='800' height='450' fill='%23f8f9fa'/%3E%3Ctext x='400' y='225' text-anchor='middle' fill='%23666' font-size='24' font-family='Arial'%3E点击加载视频播放%3C/text%3E%3C/svg%3E">
+                    您的浏览器不支持视频播放。
+                </video>
+            </div>
+            
+            <div class="preset-links">
+                <h4>🔗 快速链接:</h4>
+                <div class="preset-link" onclick="setPresetUrl('https://faf8b60b.freshvibe64.store/blah3/XEn0ezAekFvTgxX3A7ZKZY_9hxR3jYNOCqeLthCPgxdQyIZi/video.m3u8', 'https://surrit.store/')">
+                    📺 示例视频链接
+                </div>
+                <div class="preset-link" onclick="setProxyExample()">
+                    🔄 代理模式示例
+                </div>
+                <div class="preset-link" onclick="setPresetUrl('', 'https://surrit.store/')">
+                    🗑️ 清空链接
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- HLS.js库 -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
+    <script>
+        let hls = null;
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+            
+            // 3秒后自动清除状态消息
+            setTimeout(() => {
+                if (statusDiv.innerHTML.includes(message)) {
+                    statusDiv.innerHTML = '';
+                }
+            }, 3000);
+        }
+        
+        function setPresetUrl(m3u8Url, refererUrl) {
+            document.getElementById('m3u8Url').value = m3u8Url;
+            document.getElementById('refererUrl').value = refererUrl;
+        }
+        
+        function setProxyExample() {
+            document.getElementById('m3u8Url').value = 'https://faf8b60b.freshvibe64.store/blah3/XEn0ezAekFvTgxX3A7ZKZY_9hxR3jYNOCqeLthCPgxdQyIZi/video.m3u8';
+            document.getElementById('refererUrl').value = 'https://surrit.store/';
+            document.getElementById('useProxy').checked = true;
+            showStatus('✅ 已设置代理模式示例，点击"加载视频"开始播放', 'success');
+        }
+        
+        function openProxy() {
+            window.open('http://localhost:8001/', '_blank');
+        }
+        
+        function debugConnection() {
+            const m3u8Url = document.getElementById('m3u8Url').value.trim();
+            const refererUrl = document.getElementById('refererUrl').value.trim();
+            const useProxy = document.getElementById('useProxy').checked;
+            
+            console.log('=== 调试信息 ===');
+            console.log('M3U8 URL:', m3u8Url);
+            console.log('Referer URL:', refererUrl);
+            console.log('使用代理:', useProxy);
+            
+            if (useProxy) {
+                const proxyUrl = buildProxyUrl(m3u8Url, refererUrl);
+                console.log('代理URL:', proxyUrl);
+                
+                // 测试代理服务器连接
+                fetch('http://localhost:8001/')
+                    .then(response => {
+                        console.log('代理服务器状态:', response.status);
+                        showStatus(`🔧 调试信息已输出到控制台\n代理服务器状态: ${response.status === 200 ? '✅ 正常' : '❌ 异常'}`, 'info');
+                    })
+                    .catch(error => {
+                        console.error('代理服务器连接失败:', error);
+                        showStatus('🔧 调试信息已输出到控制台\n❌ 代理服务器连接失败', 'error');
+                    });
+            } else {
+                showStatus('🔧 调试信息已输出到控制台\n当前使用直接连接模式', 'info');
+            }
+            
+            console.log('浏览器信息:', navigator.userAgent);
+            console.log('HLS支持:', Hls.isSupported());
+            console.log('=== 调试信息结束 ===');
+        }
+        
+        function buildProxyUrl(m3u8Url, refererUrl) {
+            const proxyBase = 'http://localhost:8001/proxy';
+            const params = new URLSearchParams();
+            params.append('url', m3u8Url);
+            if (refererUrl) {
+                params.append('referer', refererUrl);
+            }
+            return `${proxyBase}?${params.toString()}`;
+        }
+        
+        function clearVideo() {
+            const video = document.getElementById('videoPlayer');
+            
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+            
+            video.src = '';
+            video.load();
+            
+            showStatus('✅ 视频已清除', 'success');
+        }
+        
+        function testConnection() {
+            const m3u8Url = document.getElementById('m3u8Url').value.trim();
+            const refererUrl = document.getElementById('refererUrl').value.trim();
+            const useProxy = document.getElementById('useProxy').checked;
+            
+            if (!m3u8Url) {
+                showStatus('❌ 请输入M3U8链接', 'error');
+                return;
+            }
+            
+            // 决定测试URL
+            let testUrl = m3u8Url;
+            if (useProxy) {
+                testUrl = buildProxyUrl(m3u8Url, refererUrl);
+                showStatus('🔍 正在测试代理连接...', 'info');
+            } else {
+                showStatus('🔍 正在测试直接连接...', 'info');
+            }
+            
+            // 创建一个隐藏的video元素来测试
+            const testVideo = document.createElement('video');
+            testVideo.style.display = 'none';
+            document.body.appendChild(testVideo);
+            
+            if (Hls.isSupported()) {
+                const testHls = new Hls({
+                    xhrSetup: function(xhr, url) {
+                        if (!useProxy && refererUrl) {
+                            console.log('测试时需要设置Referer:', refererUrl);
+                            console.log('提示：建议使用代理模式进行测试');
+                        }
+                    }
+                });
+                
+                testHls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    const successMsg = useProxy ? '✅ 代理连接测试成功！' : '✅ 直接连接测试成功！';
+                    showStatus(successMsg, 'success');
+                    testHls.destroy();
+                    document.body.removeChild(testVideo);
+                });
+                
+                testHls.on(Hls.Events.ERROR, function(event, data) {
+                    console.log('HLS测试错误:', data);
+                    if (data.fatal) {
+                        let errorMsg;
+                        if (useProxy) {
+                            if (data.type === 'networkError') {
+                                errorMsg = `❌ 代理网络错误：请检查代理服务器是否正常运行 (${data.details})`;
+                            } else {
+                                errorMsg = `❌ 代理连接测试失败: ${data.details}`;
+                            }
+                        } else {
+                            errorMsg = `❌ 直接连接测试失败: ${data.details} (建议尝试代理模式)`;
+                        }
+                        showStatus(errorMsg, 'error');
+                        testHls.destroy();
+                        document.body.removeChild(testVideo);
+                    }
+                });
+                
+                testHls.loadSource(testUrl);
+                testHls.attachMedia(testVideo);
+            } else {
+                showStatus('❌ 浏览器不支持HLS播放', 'error');
+                document.body.removeChild(testVideo);
+            }
+        }
+        
+        function loadVideo() {
+            const m3u8Url = document.getElementById('m3u8Url').value.trim();
+            const refererUrl = document.getElementById('refererUrl').value.trim();
+            const useProxy = document.getElementById('useProxy').checked;
+            const video = document.getElementById('videoPlayer');
+            
+            if (!m3u8Url) {
+                showStatus('❌ 请输入M3U8链接', 'error');
+                return;
+            }
+            
+            // 清除之前的播放器
+            if (hls) {
+                hls.destroy();
+            }
+            
+            // 决定使用的URL
+            let finalUrl = m3u8Url;
+            if (useProxy) {
+                finalUrl = buildProxyUrl(m3u8Url, refererUrl);
+                showStatus('🔄 正在通过代理加载视频...', 'info');
+                console.log('使用代理URL:', finalUrl);
+            } else {
+                showStatus('🔄 正在直接加载视频...', 'info');
+                console.log('直接访问URL:', finalUrl);
+            }
+            
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90,
+                    xhrSetup: function(xhr, url) {
+                        // 设置请求头
+                        xhr.setRequestHeader('Accept', '*/*');
+                        xhr.setRequestHeader('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
+                        xhr.setRequestHeader('Cache-Control', 'no-cache');
+                        xhr.setRequestHeader('Pragma', 'no-cache');
+                        xhr.setRequestHeader('Sec-Fetch-Dest', 'empty');
+                        xhr.setRequestHeader('Sec-Fetch-Mode', 'cors');
+                        xhr.setRequestHeader('Sec-Fetch-Site', 'cross-site');
+                        
+                        if (!useProxy && refererUrl) {
+                            console.log('需要设置Referer:', refererUrl);
+                            console.log('提示：由于浏览器安全限制，建议使用代理服务器来设置Referer头');
+                        }
+                    }
+                });
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    const statusMsg = useProxy ? '✅ 通过代理加载成功！' : '✅ 直接加载成功！';
+                    showStatus(statusMsg, 'success');
+                    console.log('HLS manifest parsed, found ' + hls.levels.length + ' quality levels');
+                });
+                
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    console.log('HLS播放错误详情:', data);
+                    if (data.fatal) {
+                        let errorMsg;
+                        switch(data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                if (useProxy) {
+                                    errorMsg = `❌ 代理网络错误：请检查代理服务器是否正常运行\n详情: ${data.details || data.reason || '未知网络错误'}`;
+                                    console.log('代理服务器状态检查: http://localhost:8001/');
+                                } else {
+                                    errorMsg = `❌ 网络错误：无法加载视频 (建议尝试代理模式)\n详情: ${data.details || data.reason || '未知网络错误'}`;
+                                }
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                errorMsg = `❌ 媒体错误：视频格式不支持或损坏\n详情: ${data.details || data.reason || '未知媒体错误'}`;
+                                break;
+                            default:
+                                if (useProxy) {
+                                    errorMsg = `❌ 代理播放失败：${data.details || data.reason || '未知错误'}`;
+                                } else {
+                                    errorMsg = `❌ 播放失败：${data.details || data.reason || '未知错误'} (建议尝试代理模式)`;
+                                }
+                                break;
+                        }
+                        showStatus(errorMsg, 'error');
+                        console.error('HLS播放错误:', data);
+                    }
+                });
+                
+                hls.loadSource(finalUrl);
+                hls.attachMedia(video);
+                
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Safari原生支持
+                video.src = finalUrl;
+                const statusMsg = useProxy ? '✅ 使用Safari原生HLS支持 (通过代理)' : '✅ 使用Safari原生HLS支持';
+                showStatus(statusMsg, 'success');
+                
+            } else {
+                showStatus('❌ 浏览器不支持HLS播放，请使用Chrome、Firefox或Safari', 'error');
+            }
+        }
+        
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            showStatus('🎬 M3U8播放器已就绪，请输入视频链接', 'info');
+            
+            // 检查HLS支持
+            if (Hls.isSupported()) {
+                console.log('✅ HLS.js支持已启用');
+            } else if (document.getElementById('videoPlayer').canPlayType('application/vnd.apple.mpegurl')) {
+                console.log('✅ 原生HLS支持已启用 (Safari)');
+            } else {
+                showStatus('⚠️ 当前浏览器可能不完全支持HLS播放', 'error');
+            }
+        });
+        
+        // 回车键快速加载
+        document.getElementById('m3u8Url').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                loadVideo();
+            }
+        });
+        
+        document.getElementById('refererUrl').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                loadVideo();
+            }
+        });
+    </script>
+</body>
+</html>
